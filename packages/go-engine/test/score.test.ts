@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { BLACK, defaultKomi, fromDiagram, guessDeadStones, scoreArea, toIndex } from '../src/index.js';
+import {
+  areaOwners,
+  BLACK,
+  EMPTY,
+  WHITE,
+  defaultKomi,
+  fromDiagram,
+  guessDeadStones,
+  scoreArea,
+  toIndex,
+} from '../src/index.js';
 
 describe('китайский подсчёт', () => {
   it('считает камни и окружённые пункты', () => {
@@ -92,6 +102,76 @@ describe('китайский подсчёт', () => {
     );
 
     expect(guessDeadStones(state).length).toBeGreaterThan(0);
+  });
+});
+
+describe('карта владельцев', () => {
+  it('размечает пункты теми же областями, из которых складывается счёт', () => {
+    const state = fromDiagram(
+      [
+        'XX.OO',
+        'XX.OO',
+        'XX.OO',
+        'XX.OO',
+        'XX.OO',
+      ],
+      BLACK,
+    );
+
+    const owners = areaOwners(state);
+    const score = scoreArea(state, [], 0);
+
+    let black = 0;
+    let white = 0;
+    let neutral = 0;
+    for (const owner of owners) {
+      if (owner === BLACK) black++;
+      else if (owner === WHITE) white++;
+      else neutral++;
+    }
+
+    // Средний столбец зажат между цветами и не достаётся никому.
+    expect(neutral).toBe(5);
+    expect(black).toBe(score.black);
+    expect(white).toBe(score.white);
+  });
+
+  it('отдаёт пункты снятой мёртвой группы окружившему её цвету', () => {
+    const state = fromDiagram(
+      [
+        'XXXXX',
+        'XOO.X',
+        'XOXXX',
+        'XXXXX',
+        'XXXXX',
+      ],
+      BLACK,
+    );
+
+    const marked = toIndex(5, 1, 1);
+    const owners = areaOwners(state, [marked]);
+
+    expect(owners[marked]).toBe(BLACK);
+    expect(owners.every((owner) => owner === BLACK)).toBe(true);
+  });
+
+  it('без пометок мёртвых оставляет живые камни своего цвета', () => {
+    const state = fromDiagram(
+      [
+        'XXXXX',
+        'XOO.X',
+        'XOXXX',
+        'XXXXX',
+        'XXXXX',
+      ],
+      BLACK,
+    );
+
+    const owners = areaOwners(state);
+
+    expect(owners[toIndex(5, 1, 1)]).toBe(WHITE);
+    // Единственный пустой пункт окружён обоими цветами и ничей.
+    expect(owners[toIndex(5, 3, 1)]).toBe(EMPTY);
   });
 });
 

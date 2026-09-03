@@ -12,7 +12,7 @@ body,
 body {
   background: var(--tg-theme-bg-color, #ffffff);
   color: var(--tg-theme-text-color, #000000);
-  /* На 19x19 доске любой промах пальца — чужой ход, поэтому выделение текста
+  /* На 19x19 любой промах пальца — чужой ход, поэтому выделение текста
      и системные жесты выключены на весь документ. */
   -webkit-user-select: none;
   user-select: none;
@@ -22,11 +22,99 @@ body {
 
 #root {
   /* Telegram отдаёт высоту вьюпорта переменной; 100vh в WebView врёт. */
-  min-height: var(--tg-viewport-stable-height, 100%);
+  height: var(--tg-viewport-stable-height, 100%);
 }
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   word-break: break-all;
+}
+
+/* --- экран партии --- */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.status {
+  flex: 0 0 auto;
+  padding: 10px 16px 6px;
+  text-align: center;
+}
+
+.status-main {
+  font-size: 17px;
+  font-weight: 600;
+}
+
+.status-sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--tg-theme-hint-color, #707579);
+  min-height: 18px;
+}
+
+.status-warn {
+  color: var(--tg-theme-destructive-text-color, #df3f40);
+}
+
+/* Доска забирает всё, что осталось. min-height: 0 обязателен — иначе
+   flex-элемент с канвой внутри отказывается сжиматься на низких экранах. */
+.board-wrap {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.board-canvas {
+  display: block;
+  /* Без этого браузер перехватывает панораму и щипок раньше обработчиков. */
+  touch-action: none;
+}
+
+.board-reset {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  padding: 6px 12px;
+  border: none;
+  border-radius: 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--tg-theme-button-text-color, #ffffff);
+  background: var(--tg-theme-button-color, #3390ec);
+  opacity: 0.9;
+}
+
+.actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px calc(12px + var(--tg-safe-area-inset-bottom, 0px));
+}
+
+/* --- лобби --- */
+
+.choice-row {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px 12px;
+}
+
+.choice-wrap {
+  flex-wrap: wrap;
+}
+
+.lobby-start {
+  padding: 8px 16px 4px;
+}
+
+.lobby-room-url {
+  display: block;
+  padding: 0 16px 8px;
+  color: var(--tg-theme-hint-color, #707579);
 }

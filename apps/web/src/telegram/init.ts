@@ -1,6 +1,7 @@
 import {
   backButton,
   init as initSDK,
+  mainButton,
   miniApp,
   restoreInitData,
   retrieveLaunchParams,
@@ -16,7 +17,7 @@ import { mockEnvIfOutsideTelegram } from './mockEnv.js';
  * Каждый компонент проверяется на доступность: версии клиентов Telegram
  * различаются, и вызов неподдержанного метода — исключение, а не no-op.
  */
-export async function initTelegram(): Promise<void> {
+export function initTelegram(): void {
   mockEnvIfOutsideTelegram();
   initSDK();
 
@@ -35,6 +36,10 @@ export async function initTelegram(): Promise<void> {
   if (backButton.isSupported()) {
     backButton.mount();
   }
+  // MainButton монтируется здесь один раз: экраны только меняют её надпись.
+  if (mainButton.mount.isAvailable()) {
+    mainButton.mount();
+  }
   // Без этого вертикальный свайп по доске сворачивает приложение.
   if (swipeBehavior.mount.isAvailable()) {
     swipeBehavior.mount();
@@ -42,9 +47,16 @@ export async function initTelegram(): Promise<void> {
       swipeBehavior.disableVertical();
     }
   }
+
+  // Вьюпорт монтируется запросом к клиенту Telegram и ждёт ответа. Ждать его
+  // до первого кадра нельзя: не пришёл ответ — приложение не отрисовалось бы
+  // вовсе. Переменные вьюпорта привяжутся, когда данные доедут; до тех пор
+  // вёрстка живёт на запасных значениях из index.css.
   if (viewport.mount.isAvailable() && !viewport.isMounting()) {
-    await viewport.mount();
-    viewport.bindCssVars();
+    viewport
+      .mount()
+      .then(() => viewport.bindCssVars())
+      .catch((error: unknown) => console.warn('[telegram] вьюпорт не смонтировался', error));
   }
 
   miniApp.ready();

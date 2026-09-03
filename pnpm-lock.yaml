@@ -30,6 +30,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@go/engine':
+        specifier: workspace:*
+        version: link:../../packages/go-engine
       '@go/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -64,6 +67,9 @@ importers:
       vite:
         specifier: ^7.1.0
         version: 7.3.6(@types/node@26.4.1)
+      vitest:
+        specifier: ^3.0.5
+        version: 3.2.7(@types/node@26.4.1)(supports-color@10.2.2)
       wrangler:
         specifier: ^4.42.0
         version: 4.128.0

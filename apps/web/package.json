@@ -8,9 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "deploy": "wrangler pages deploy dist --project-name go-mini-app",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@go/engine": "workspace:*",
     "@go/protocol": "workspace:*",
     "@telegram-apps/sdk-react": "^3.3.0",
     "@telegram-apps/telegram-ui": "^2.1.8",
@@ -24,6 +26,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "^5.7.2",
     "vite": "^7.1.0",
+    "vitest": "^3.0.5",
     "wrangler": "^4.42.0"
   }
 }

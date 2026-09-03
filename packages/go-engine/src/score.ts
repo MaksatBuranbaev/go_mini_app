@@ -81,7 +81,11 @@ function expandGroups(board: Uint8Array, size: number, seeds: Iterable<number>):
  * Пустая область достаётся цвету, если граничит ровно с ним одним.
  * Область, зажатая между двумя цветами (сэки или недоигранная граница), не даёт очков никому.
  */
-function countTerritory(board: Uint8Array, size: number): { black: number; white: number } {
+function countTerritory(
+  board: Uint8Array,
+  size: number,
+  owners?: Uint8Array,
+): { black: number; white: number } {
   const seen = new Uint8Array(size * size);
   const nbuf = new Int32Array(4);
   let black = 0;
@@ -113,11 +117,32 @@ function countTerritory(board: Uint8Array, size: number): { black: number; white
       }
     }
 
-    if (touchesBlack && !touchesWhite) black += region.length;
-    else if (touchesWhite && !touchesBlack) white += region.length;
+    if (touchesBlack && !touchesWhite) {
+      black += region.length;
+      if (owners) for (const point of region) owners[point] = BLACK;
+    } else if (touchesWhite && !touchesBlack) {
+      white += region.length;
+      if (owners) for (const point of region) owners[point] = WHITE;
+    }
   }
 
   return { black, white };
+}
+
+/**
+ * Кому принадлежит каждый пункт после снятия мёртвых камней: `EMPTY`, `BLACK` или `WHITE`.
+ * Живые камни остаются своим цветом, пустые пункты получают цвет окружившего их игрока,
+ * спорные области — `EMPTY`. Считается тем же обходом, что и очки, поэтому подсветка
+ * территории в UI не может разойтись с итоговым счётом.
+ */
+export function areaOwners(state: GameState, dead: Iterable<number> = []): Uint8Array {
+  const { size } = state;
+  const board = Uint8Array.from(state.board);
+  for (const point of expandGroups(board, size, dead)) board[point] = EMPTY;
+
+  const owners = Uint8Array.from(board);
+  countTerritory(board, size, owners);
+  return owners;
 }
 
 export function formatResult(difference: number): string {
