@@ -1,0 +1,32 @@
+:root {
+  color-scheme: light dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--tg-theme-bg-color, #ffffff);
+  color: var(--tg-theme-text-color, #000000);
+  /* На 19x19 доске любой промах пальца — чужой ход, поэтому выделение текста
+     и системные жесты выключены на весь документ. */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+#root {
+  /* Telegram отдаёт высоту вьюпорта переменной; 100vh в WebView врёт. */
+  min-height: var(--tg-viewport-stable-height, 100%);
+}
+
+.mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  word-break: break-all;
+}

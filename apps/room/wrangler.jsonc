@@ -1,0 +1,23 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "go-room",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-31",
+  "observability": { "enabled": true },
+
+  // Комната = один Durable Object на партию. SQLite-вариант — единственный,
+  // что доступен на бесплатном плане Workers.
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "Room" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] }
+  ],
+
+  "vars": {
+    // Origin'ы, которым Worker отвечает с CORS-заголовками. Через запятую.
+    // Превью-деплои Pages живут на адресах вида https://<hash>.go-mini-app.pages.dev
+    // и сюда не попадают: проверять их придётся, дописав адрес руками.
+    "ALLOWED_ORIGINS": "https://go-mini-app.pages.dev,http://localhost:5173"
+  }
+}
