@@ -25,6 +25,7 @@ import { roomSocketUrl } from '../api/room.js';
 import {
   aimFeedback,
   captureFeedback,
+  passFeedback,
   rejectFeedback,
   stoneFeedback,
 } from '../telegram/feedback.js';
@@ -267,6 +268,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     const { game, status, yourColor, lastSeq } = get();
     if (!game || status !== 'playing' || !yourColor) return;
     if (seatOf(game.toPlay) !== yourColor) return;
+    passFeedback();
     set({ pending: null, rejected: null, notice: null });
     sendMessage({ type: 'pass', seq: lastSeq + 1 });
     watchDelivery(lastSeq + 1, set, get);

@@ -1,6 +1,6 @@
 import { emitEvent, mockTelegramEnv } from '@telegram-apps/sdk-react';
 
-const THEME = {
+const LIGHT = {
   bg_color: '#ffffff',
   text_color: '#000000',
   hint_color: '#707579',
@@ -16,6 +16,32 @@ const THEME = {
   destructive_text_color: '#df3f40',
   // as const: SDK ждёт цвета типом `#${string}`, а не просто string.
 } as const;
+
+/**
+ * Тёмная палитра мобильного Telegram — цифра в цифру. Она сильно синее любой
+ * «просто тёмной» темы, и вёрстка, проверенная на нейтрально-серой, на телефоне
+ * выглядит иначе: тёплая подложка тонет, а заголовки секций уходят в голубой.
+ * Включается `?dev_theme=dark`.
+ */
+const DARK = {
+  bg_color: '#17212b',
+  text_color: '#f5f5f5',
+  hint_color: '#708499',
+  link_color: '#6ab3f3',
+  button_color: '#5288c1',
+  button_text_color: '#ffffff',
+  secondary_bg_color: '#232e3c',
+  section_bg_color: '#17212b',
+  header_bg_color: '#17212b',
+  accent_text_color: '#6ab3f3',
+  section_header_text_color: '#6ab3f3',
+  subtitle_text_color: '#708499',
+  destructive_text_color: '#ec3942',
+} as const;
+
+const THEME = new URLSearchParams(window.location.search).get('dev_theme') === 'dark'
+  ? DARK
+  : LIGHT;
 
 /**
  * Тот же фальшивый токен, что в `apps/room/.dev.vars` (см. `.dev.vars.example`).

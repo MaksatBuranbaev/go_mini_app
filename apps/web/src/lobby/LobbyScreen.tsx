@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { createRoom } from '../api/room.js';
 import { BOARD_SIZES, HANDICAPS, useGameStore } from '../game/store.js';
 import { isSoundEnabled, setSoundEnabled } from '../telegram/sound.js';
-import { TIME_PRESETS, controlText, lengthText } from './time.js';
+import { DEFAULT_TIER, controlText, timeTiers } from './time.js';
 
 const COLORS = [
   { value: 'black', label: 'Чёрные' },
@@ -31,12 +31,16 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
   // `null` — коми считается автоматически. Как только игрок тронул его руками,
   // автоподстановка выключается: иначе смена доски молча затрёт выбор.
   const [komi, setKomi] = useState<number | null>(null);
-  const [timeIndex, setTimeIndex] = useState(1);
+  // Ступень и вариант, а не готовый контроль: лестница времени своя у каждой
+  // доски, и при смене размера выбор должен остаться на том же месте.
+  const [pick, setPick] = useState({ tier: DEFAULT_TIER, option: 0 });
   const [sound, setSound] = useState(isSoundEnabled);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startHotseat = useGameStore((state) => state.start);
 
+  const tiers = timeTiers(size);
+  const time = tiers[pick.tier]?.options[pick.option] ?? tiers[DEFAULT_TIER]!.options[0]!;
   const autoKomi = defaultKomi(size, handicap, rules);
   const effectiveKomi = komi ?? autoKomi;
 
@@ -45,7 +49,7 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
     handicap,
     komi: effectiveKomi,
     creatorColor,
-    time: TIME_PRESETS[timeIndex]!,
+    time,
     rules,
   };
 
@@ -151,17 +155,25 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
         </Section>
 
         <Section header="Время">
-          <div className="time-presets">
-            {TIME_PRESETS.map((preset, index) => (
-              <button
-                key={index}
-                type="button"
-                className={`time-preset${index === timeIndex ? ' time-preset-on' : ''}`}
-                onClick={() => setTimeIndex(index)}
-              >
-                <span className="time-preset-length">{lengthText(preset, size)}</span>
-                <span className="time-preset-value">{controlText(preset)}</span>
-              </button>
+          <div className="time-tiers">
+            {tiers.map((tier, index) => (
+              <div key={tier.label} className="time-tier">
+                <span className="time-tier-label">{tier.label}</span>
+                <div className="time-tier-options">
+                  {tier.options.map((option, at) => (
+                    <button
+                      key={controlText(option)}
+                      type="button"
+                      className={`time-preset${
+                        index === pick.tier && at === pick.option ? ' time-preset-on' : ''
+                      }`}
+                      onClick={() => setPick({ tier: index, option: at })}
+                    >
+                      {controlText(option)}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </Section>
@@ -184,7 +196,7 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
           >
             Звук
           </Cell>
-          <Cell subtitle="Ко">Позиционный суперко</Cell>
+          <Cell subtitle="Позиционный суперко">Ко</Cell>
         </Section>
 
         {error && (

@@ -20,7 +20,7 @@ const SKEW = `(() => {
   window.Date = SkewedDate;
 })()`;
 
-/** «3:00 3:00» -> [180, 180] секунд. */
+/** «5:00 5:00» -> [300, 300] секунд. */
 function seconds(text) {
   return [...(text ?? '').matchAll(/(\d+):(\d\d)/g)].map(([, m, s]) => Number(m) * 60 + Number(s));
 }
@@ -31,13 +31,13 @@ const skewSeen = await a.evaluate('Date.now()');
 check('часы вкладки A уехали вперёд', skewSeen - Date.now() > SKEW_MS - 5000, `${Math.round((skewSeen - Date.now()) / 1000)} с`);
 
 await a.clickText('Чёрные');
-await a.clickStartsWith('~ 14 мин');
+await a.clickText('5 мин + 10 сек');
 await a.clickText('Пригласить друга');
 
 const link = await a.waitForText('.invite-link', (t) => t.includes('startapp='));
 const roomId = decodeURIComponent(link.split('startapp=')[1]);
 console.log('комната:', roomId);
-check('в приглашении видно контроль', (await a.body()).includes('3 мин + 10 сек'));
+check('в приглашении видно контроль', (await a.body()).includes('5 мин + 10 сек'));
 
 const b = await Tab.open('B', `http://localhost:5173/?dev_user=22&startapp=${encodeURIComponent(roomId)}`);
 await sleep(3000);
@@ -53,8 +53,8 @@ console.log('A видит:', clockA.trim(), '| B видит:', clockB.trim());
 
 const [aBlack, aWhite] = seconds(clockA);
 const [bBlack, bWhite] = seconds(clockB);
-check('у B обе стороны с полного времени', bBlack > 170 && bWhite === 180, `${bBlack}/${bWhite} с`);
-check('кривые часы не съели время у A', aBlack > 170 && aWhite === 180, `${aBlack}/${aWhite} с`);
+check('у B обе стороны с полного времени', bBlack > 290 && bWhite === 300, `${bBlack}/${bWhite} с`);
+check('кривые часы не съели время у A', aBlack > 290 && aWhite === 300, `${aBlack}/${aWhite} с`);
 check('A и B видят одно и то же', Math.abs(aBlack - bBlack) <= 2, `${aBlack} против ${bBlack}`);
 await a.shot('40-blitz-skewed-a');
 
@@ -91,7 +91,7 @@ const clockAfter = await a.text('.clocks');
 const [aBlack3, aWhite3] = seconds(clockAfter);
 console.log('после хода:', clockAfter.trim());
 check('инкремент вернул время ходившему', aBlack3 > aBlackBack, `${aBlackBack} -> ${aBlack3}`);
-check('часы переехали к сопернику', aWhite3 < 180, `${aWhite3} с`);
+check('часы переехали к сопернику', aWhite3 < 300, `${aWhite3} с`);
 await a.shot('41-blitz-after-move');
 
 report([a, b]);

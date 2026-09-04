@@ -1,10 +1,10 @@
 import '@telegram-apps/telegram-ui/dist/styles.css';
 import './index.css';
 
-import { AppRoot } from '@telegram-apps/telegram-ui';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
+import { Themed } from './telegram/Themed.js';
 import { initTelegram } from './telegram/init.js';
 import { mockEnvIfOutsideTelegram } from './telegram/mockEnv.js';
 
@@ -32,9 +32,9 @@ mockEnvIfOutsideTelegram().then(() => {
     initTelegram();
     root.render(
       <StrictMode>
-        <AppRoot style={{ height: '100%' }}>
+        <Themed>
           <App />
-        </AppRoot>
+        </Themed>
       </StrictMode>,
     );
   } catch (error) {

@@ -6,7 +6,7 @@ const a = await Tab.open('A', 'http://localhost:5173/?dev_user=11');
 await sleep(2800);
 
 await a.clickText('Чёрные');
-await a.clickStartsWith('~ 10 мин');
+await a.clickText('2 мин + 7 сек');
 await a.clickText('Пригласить друга');
 
 const link = await a.waitForText('.invite-link', (t) => t.includes('startapp='));

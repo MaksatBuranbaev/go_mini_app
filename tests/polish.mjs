@@ -1,8 +1,8 @@
-// Синхронизация двух игроков и часы во время отправки хода.
+// Анимация захвата и звук: что звучит, что молчит и откуда берётся стук.
 import { check, report, sleep } from './lib/harness.mjs';
 import { Tab } from './lib/tab.mjs';
 
-/** Считаем источники звука: он синтезируется, файлов для проверки нет. */
+/** Считаем источники звука: и запись, и синтез идут через них. */
 const SPY = `
   // Прошлый прогон мог выключить звук — сбрасываем настройку один раз,
   // иначе перезагрузка внутри теста затрёт то, что тест и проверяет.
@@ -41,7 +41,17 @@ await a.tap(4, 4);
 await b.waitForText('.status-main', (t) => t.includes('Ваш ход'));
 await sleep(400);
 const afterMove = await a.evaluate('window.__osc');
-check('ход звучит', afterMove >= 2, `источников ${afterMove}`);
+check('ход звучит', afterMove >= 1, `источников ${afterMove}`);
+
+// Стучит запись, а не синтез: файл со стуком должен доехать до страницы.
+const sample = await a.evaluate(
+  `performance.getEntriesByType('resource').filter((r) => r.name.includes('stones')).map((r) => r.name)`,
+);
+check(
+  'запись стука подгрузилась',
+  sample.some((name) => name.endsWith('stones.wav')),
+  sample.join(' '),
+);
 
 console.log('--- анимация захвата ---');
 // Белый камень в углу теряет свободы одну за другой: снимает его последний
@@ -69,13 +79,40 @@ await sleep(400);
 check('анимация заканчивается', (await a.evaluate(`document.querySelector('canvas').toDataURL()`)) === after);
 
 const oscAfter = await a.evaluate('window.__osc');
-check('захват звучит богаче хода', oscAfter - oscBefore >= 5, `источников ${oscAfter - oscBefore}`);
+check('захват звучит богаче хода', oscAfter - oscBefore >= 3, `источников ${oscAfter - oscBefore}`);
 
 // И у соперника снятый камень тоже пропал.
 await b.waitForText('.status-main', (t) => t.includes('Ваш ход'));
 await sleep(500);
 check('доски сошлись после захвата', (await b.boardImage()) === (await a.boardImage()));
 await a.shot('80-capture');
+
+console.log('--- пас и подсчёт молчат ---');
+// Партия на одном устройстве: там пас нажимается кнопкой и там же он стучал
+// камнем, которого не было.
+const c = await Tab.open('C', 'about:blank');
+await c.send('Page.addScriptToEvaluateOnNewDocument', { source: SPY });
+await c.send('Page.navigate', { url: 'http://localhost:5173/?dev_user=83' });
+await sleep(2800);
+await c.clickText('На одном устройстве');
+await sleep(600);
+await c.tap(2, 2);
+await sleep(400);
+const afterLocal = await c.evaluate('window.__osc');
+check('ход на одном устройстве звучит', afterLocal >= 1, `источников ${afterLocal}`);
+
+await c.clickText('Пас');
+await sleep(600);
+check('пас молчит', (await c.evaluate('window.__osc')) === afterLocal, `источников ${await c.evaluate('window.__osc')}`);
+
+await c.clickText('Пас');
+await c.waitForText('.status-sub', (t) => t.includes('мёртвые'));
+check('второй пас молчит', (await c.evaluate('window.__osc')) === afterLocal, `источников ${await c.evaluate('window.__osc')}`);
+
+// Разметка мёртвых — один тап по группе, и это не постановка камня.
+await c.tap(2, 2, 1);
+await sleep(400);
+check('разметка в подсчёте молчит', (await c.evaluate('window.__osc')) === afterLocal, `источников ${await c.evaluate('window.__osc')}`);
 
 console.log('--- выключение звука ---');
 await a.evaluate("localStorage.setItem('go_sound', 'off')");
@@ -85,4 +122,4 @@ const setting = await a.evaluate("localStorage.getItem('go_sound')");
 check('настройка звука сохраняется', setting === 'off', String(setting));
 await a.evaluate("localStorage.setItem('go_sound', 'on')");
 
-report([a, b]);
+report([a, b, c]);

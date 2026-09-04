@@ -13,6 +13,14 @@ export function stoneFeedback(): void {
   stoneSound();
 }
 
+/**
+ * Пас. Камня о доску не было — стучать нечем, остаётся только отклик в руку:
+ * стук на пасе звучал как чужой ход и сбивал с толку.
+ */
+export function passFeedback(): void {
+  if (hapticFeedback.impactOccurred.isAvailable()) hapticFeedback.impactOccurred('light');
+}
+
 /** Взяли группу — отклик заметно сильнее обычного хода. */
 export function captureFeedback(): void {
   if (hapticFeedback.impactOccurred.isAvailable()) hapticFeedback.impactOccurred('heavy');

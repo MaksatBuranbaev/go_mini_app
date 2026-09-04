@@ -7,7 +7,7 @@ const seconds = (t) => [...(t ?? '').matchAll(/(\d+):(\d\d)/g)].map(([, m, s]) =
 const a = await Tab.open('A', 'http://localhost:5173/?dev_user=31');
 await sleep(2800);
 await a.clickText('Чёрные');
-await a.clickStartsWith('~ 5 мин');
+await a.clickText('30 сек + 5 сек');
 await a.clickText('Пригласить друга');
 const link = await a.waitForText('.invite-link', (t) => t.includes('startapp='));
 const roomId = decodeURIComponent(link.split('startapp=')[1]);

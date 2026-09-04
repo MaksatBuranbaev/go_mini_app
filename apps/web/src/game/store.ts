@@ -19,6 +19,7 @@ import { create } from 'zustand';
 import {
   aimFeedback,
   captureFeedback,
+  passFeedback,
   rejectFeedback,
   stoneFeedback,
 } from '../telegram/feedback.js';
@@ -151,7 +152,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (!result.ok) return;
 
     const next = result.value;
-    stoneFeedback();
+    passFeedback();
 
     const record: RecordedMove[] = [...get().record, { color: game.toPlay, move: { type: 'pass' } }];
 

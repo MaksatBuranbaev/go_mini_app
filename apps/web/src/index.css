@@ -10,6 +10,10 @@ body,
 }
 
 body {
+  /* Своим элементам (часы, статус, пилюли времени) шрифт нужно задать самим:
+     telegram-ui держит его в переменной и ставит только своим компонентам,
+     а браузер по умолчанию рисует наши засечками. */
+  font-family: var(--tgui--font-family, system-ui, -apple-system, 'Roboto', sans-serif);
   background: var(--tg-theme-bg-color, #ffffff);
   color: var(--tg-theme-text-color, #000000);
   /* На 19x19 любой промах пальца — чужой ход, поэтому выделение текста
@@ -23,6 +27,26 @@ body {
 #root {
   /* Telegram отдаёт высоту вьюпорта переменной; 100vh в WebView врёт. */
   height: var(--tg-viewport-stable-height, 100%);
+}
+
+/*
+ * Правки поверх telegram-ui. Переменные он объявляет на своём корне, поэтому
+ * перебиваются они только селектором такой же глубины — отсюда `#root > *`.
+ *
+ * Заголовок секции клиент присылает акцентным (в тёмной теме Telegram это
+ * ярко-синий), и той же переменной telegram-ui красит подписи под секцией.
+ * На телефоне половина лобби выглядела ссылками — возвращаем подписям
+ * приглушённый цвет, а выделяться им хватает и размера.
+ */
+#root > * {
+  --tgui--section_header_text_color: var(--tg-theme-hint-color, #707579);
+}
+
+/* Сам заголовок берёт цвет не из этой переменной, а из акцентного — и он в
+   тёмной теме такой же синий. Гасим и его: выделяться заголовку хватает
+   размера и того, что он стоит над карточкой. */
+#root header > * {
+  color: var(--tg-theme-hint-color, #707579);
 }
 
 .mono {
@@ -218,17 +242,27 @@ body {
  * клиентских темах жёсткий цвет даёт нечитаемый текст.
  */
 .lobby {
+  /* Карточки лобби — тёплая бумага, а не белый лист клиента: выбор партии
+     должен выглядеть как доска, а не как страница настроек. Цвет здесь свой,
+     но текст остаётся клиентским — а он в любой светлой теме тёмный. */
+  --tgui--section_bg_color: #fffdf7;
   background:
-    radial-gradient(120% 38% at 50% 0%, rgba(214, 162, 82, 0.55), transparent 70%),
-    linear-gradient(180deg, rgba(214, 162, 82, 0.16), rgba(214, 162, 82, 0.04) 45%, transparent 70%),
+    radial-gradient(130% 40% at 50% 0%, rgba(214, 162, 82, 0.5), transparent 72%),
+    linear-gradient(180deg, rgba(214, 162, 82, 0.18), rgba(214, 162, 82, 0.05) 45%, transparent 70%),
     var(--tg-theme-secondary-bg-color, #f0f0f4);
 }
 
+/*
+ * В тёмной теме подложка клиента светлее его же карточек (Telegram шлёт
+ * secondary светлее bg), и карточки проваливались в фон. Затемняем базу — так
+ * порядок тот же, что в светлой: секции лежат на фоне, а не в нём.
+ */
 :root[data-theme='dark'] .lobby {
+  --tgui--section_bg_color: #1f2228;
   background:
-    radial-gradient(120% 38% at 50% 0%, rgba(176, 128, 62, 0.34), transparent 70%),
-    linear-gradient(180deg, rgba(176, 128, 62, 0.12), transparent 60%),
-    var(--tg-theme-secondary-bg-color, #17181a);
+    radial-gradient(130% 40% at 50% 0%, rgba(214, 162, 82, 0.28), transparent 72%),
+    linear-gradient(180deg, rgba(214, 162, 82, 0.07), transparent 55%),
+    #14161a;
 }
 
 /*
@@ -238,13 +272,16 @@ body {
 .lobby > * > *:not(.lobby-start) {
   margin: 0 8px 12px;
   border-radius: 14px;
-  background: var(--tg-theme-bg-color, #ffffff);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.08),
+    inset 0 0 0 1px rgba(0, 0, 0, 0.04);
   overflow: hidden;
 }
 
 :root[data-theme='dark'] .lobby > * > *:not(.lobby-start) {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  box-shadow:
+    0 2px 6px rgba(0, 0, 0, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.06);
 }
 
 .stepper {
@@ -269,59 +306,62 @@ body {
   opacity: 0.55;
 }
 
-/* Пресеты времени: подпись-оценка над пилюлей, точка у выбранного. */
-.time-presets {
+/*
+ * Время: ступени лестницы. Над парой пилюль — во что обойдётся вечер, сами
+ * пилюли рядом, потому что это один и тот же по длине контроль с добавкой
+ * и с бёёми. У выбранной — обводка и точка.
+ */
+.time-tiers {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
   padding: 8px 16px 14px;
 }
 
-.time-preset {
+.time-tier-label {
+  display: block;
+  margin-bottom: 6px;
+  padding-left: 2px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--tg-theme-hint-color, #707579);
+}
+
+.time-tier-options {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  width: 100%;
-  padding: 0;
+  gap: 8px;
+}
+
+.time-preset {
+  position: relative;
+  flex: 1;
+  padding: 10px 22px 10px 12px;
   font: inherit;
+  font-size: 13px;
   color: inherit;
   text-align: left;
-  background: none;
   border: 0;
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.14);
   cursor: pointer;
 }
 
-.time-preset-length {
-  padding-left: 4px;
-  font-size: 12px;
-  font-style: italic;
-  opacity: 0.65;
-}
-
-.time-preset-value {
-  position: relative;
-  padding: 11px 34px 11px 16px;
-  font-size: 15px;
-  border-radius: 12px;
-  background: var(--tg-theme-secondary-bg-color, rgba(127, 127, 127, 0.14));
-}
-
-:root[data-theme='dark'] .time-preset-value {
+:root[data-theme='dark'] .time-preset {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.time-preset-on .time-preset-value {
-  outline: 2px solid var(--tg-theme-link-color, #2f7fd4);
+.time-preset-on {
+  outline: 2px solid var(--tg-theme-button-color, #3390ec);
 }
 
-.time-preset-on .time-preset-value::after {
+.time-preset-on::after {
   content: '';
   position: absolute;
   top: 50%;
-  right: 14px;
-  width: 8px;
-  height: 8px;
-  margin-top: -4px;
+  right: 9px;
+  width: 7px;
+  height: 7px;
+  margin-top: -3.5px;
   border-radius: 50%;
   background: #3fbf5f;
 }
