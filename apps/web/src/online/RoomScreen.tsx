@@ -21,7 +21,7 @@ export interface RoomScreenProps {
 export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
   const store = useOnlineStore();
   const isDark = useSignal(isMiniAppDark);
-  const { connect, leave, aim, clearAim, confirmMove, toggleDead } = store;
+  const { connect, leave, aim, clearAim, toggleDead } = store;
 
   useEffect(() => {
     rememberRoom(roomId, settings);
@@ -72,25 +72,21 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
     store.yourColor !== null &&
     seatOf(store.game.toPlay) === store.yourColor;
 
-  const canConfirm = myTurn && store.pending !== null;
   const accepted = store.scoring?.acceptedBy ?? [];
   const iAccepted = store.yourColor !== null && accepted.includes(store.yourColor);
 
-  // Кнопка не исчезает на чужом ходу, а гаснет: её появление и пропадание
-  // двигает вьюпорт, доска пересчитывает раскладку, и второй тап
-  // подтверждения улетает в соседнее пересечение.
+  // Во время партии кнопки подтверждения нет вовсе: ход ставится вторым тапом
+  // по той же точке. Кнопка мешала вдвойне — занимала низ экрана и двигала
+  // вьюпорт, из-за чего доска пересчитывала раскладку прямо между тапами.
   const main = useMemo(() => {
     if (store.status === 'waiting') {
       return { text: 'Позвать друга', onClick: () => share(roomId) };
-    }
-    if (store.status === 'playing') {
-      return { text: 'Подтвердить ход', onClick: confirmMove, enabled: canConfirm };
     }
     if (store.status === 'scoring') {
       return { text: 'Принять счёт', onClick: store.acceptScore, enabled: !iAccepted };
     }
     return null;
-  }, [store.status, store.acceptScore, canConfirm, iAccepted, roomId, confirmMove]);
+  }, [store.status, store.acceptScore, iAccepted, roomId]);
 
   useMainButton(main);
 
@@ -109,7 +105,7 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
 
   const active = store.settings ?? settings;
   const board = store.game?.board ?? new Uint8Array(active.size * active.size);
-  const running = store.status === 'playing' && store.game ? seatOf(store.game.toPlay) : null;
+  const running = runningSide(store);
 
   return (
     <div className="screen">
@@ -149,27 +145,20 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
 
       <footer className="actions">
         {store.status === 'playing' && (
-          <>
-            {!hasNativeButtons() && (
-              <Button size="l" stretched disabled={!canConfirm} onClick={confirmMove}>
-                Подтвердить ход
-              </Button>
-            )}
-            <div className="actions-row">
-              <Button
-                size="m"
-                mode="outline"
-                stretched
-                disabled={!myTurn}
-                onClick={() => void doPass()}
-              >
-                Пас
-              </Button>
-              <Button size="m" mode="outline" stretched onClick={() => void doResign()}>
-                Сдаться
-              </Button>
-            </div>
-          </>
+          <div className="actions-row">
+            <Button
+              size="m"
+              mode="outline"
+              stretched
+              disabled={!myTurn}
+              onClick={() => void doPass()}
+            >
+              Пас
+            </Button>
+            <Button size="m" mode="outline" stretched onClick={() => void doResign()}>
+              Сдаться
+            </Button>
+          </div>
         )}
 
         {store.status === 'scoring' && (
@@ -265,6 +254,20 @@ function share(roomId: string): void {
 
 type Store = ReturnType<typeof useOnlineStore.getState>;
 
+/**
+ * Чьи часы идут на экране.
+ *
+ * Пока свой ход не подтверждён комнатой, время списывается всё ещё с меня:
+ * ход показан оптимистично, но комната о нём не знает. Если верить доске,
+ * мои часы замирают на отправке — а на плохой связи это те самые секунды,
+ * за которые падает флаг, — и часы соперника прыгают назад на моё раздумье.
+ */
+function runningSide(store: Store): SeatColor | null {
+  if (store.status !== 'playing' || !store.game) return null;
+  if (store.awaiting !== null && store.yourColor) return store.yourColor;
+  return seatOf(store.game.toPlay);
+}
+
 function headline(store: Store, myTurn: boolean): string {
   if (store.status === 'finished') return resultText(store.result);
   if (store.status === 'scoring') return 'Отметьте мёртвые камни';
@@ -284,6 +287,9 @@ function subline(store: Store, accepted: SeatColor[]): string {
   if (store.status === 'finished' && store.score) {
     return `Чёрные ${store.score.black} : ${store.score.white} белые`;
   }
+
+  // Кнопки подтверждения нет, поэтому подсказка обязана быть на виду.
+  if (store.pending !== null) return 'Тапните ещё раз по точке, чтобы поставить камень';
 
   return opponentText(store.seats, store.online, store.yourColor);
 }

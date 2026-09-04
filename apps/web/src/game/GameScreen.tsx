@@ -18,7 +18,6 @@ export function GameScreen() {
     score,
     aim,
     clearAim,
-    confirmMove,
     pass,
     resign,
     toggleDead,
@@ -56,13 +55,13 @@ export function GameScreen() {
     quit();
   }, [game, quit]);
 
-  /** MainButton контекстна: подтверждение хода, пас или приём счёта. */
+  /** MainButton контекстна: пас в игре, приём счёта в подсчёте. Ход же
+   * подтверждается вторым тапом по точке, кнопки для этого нет. */
   const main = useMemo(() => {
     if (!game || game.phase === 'finished') return null;
     if (game.phase === 'scoring') return { text: 'Принять счёт', run: acceptScore };
-    if (pending !== null) return { text: 'Подтвердить ход', run: confirmMove };
     return { text: 'Пас', run: doPass };
-  }, [game, pending, acceptScore, confirmMove, doPass]);
+  }, [game, acceptScore, doPass]);
 
   useMainButton(
     useMemo(() => (main ? { text: main.text, onClick: () => void main.run() } : null), [main]),
