@@ -1,18 +1,24 @@
 import {
   BLACK,
   createGame,
+  groupAt,
+  guessDeadStones,
   hashBoard,
   play,
+  resumePlay,
+  scoreArea,
   stateFromBoard,
   type Color,
   type GameState,
 } from '@go/engine';
 import {
   ClientMessageSchema,
+  type Clock,
   type GameSettings,
   type MoveRecord,
   type RoomPreview,
   type RoomStatus,
+  type Scoring,
   type Seat,
   type SeatColor,
   type ServerMessage,
@@ -20,6 +26,15 @@ import {
 } from '@go/protocol';
 import { DurableObject } from 'cloudflare:workers';
 import type { RoomUser } from './auth.js';
+import {
+  afterMove,
+  deadline,
+  initialClock,
+  isExpired,
+  resume as resumeClock,
+  stop as stopClock,
+  type ClockState,
+} from './clock.js';
 
 /**
  * Снапшот позиции — производный кэш, а не источник истины. Он лежит рядом
@@ -68,6 +83,10 @@ function seatOf(color: Color): SeatColor {
   return color === BLACK ? 'black' : 'white';
 }
 
+function other(color: SeatColor): SeatColor {
+  return color === 'black' ? 'white' : 'black';
+}
+
 /**
  * Комната — один Durable Object на партию.
  *
@@ -114,6 +133,7 @@ export class Room extends DurableObject<Env> {
       status: 'waiting' satisfies RoomStatus,
       seq: 0,
       result: null,
+      clock: initialClock(resolved.time),
     });
 
     return { settings: resolved, yourColor };
@@ -183,7 +203,17 @@ export class Room extends DurableObject<Env> {
       case 'join':
         return this.onJoin(ws, parsed.data.lastSeq);
       case 'move':
-        return this.onMove(ws, parsed.data.seq, parsed.data.x, parsed.data.y);
+        return this.onPlay(ws, parsed.data.seq, { x: parsed.data.x, y: parsed.data.y });
+      case 'pass':
+        return this.onPlay(ws, parsed.data.seq, null);
+      case 'resign':
+        return this.onResign(ws);
+      case 'scoring:toggle':
+        return this.onScoringToggle(ws, parsed.data.point);
+      case 'scoring:accept':
+        return this.onScoringAccept(ws);
+      case 'scoring:resume':
+        return this.onScoringResume(ws);
     }
   }
 
@@ -194,6 +224,28 @@ export class Room extends DurableObject<Env> {
 
   override async webSocketError(ws: WebSocket): Promise<void> {
     await this.broadcastPresence(ws);
+  }
+
+  /**
+   * Будильник на просрочку. Он и есть причина, по которой победа по времени
+   * вообще работает: партия закрывается, даже если оба клиента отключены
+   * и разбудить комнату некому.
+   */
+  override async alarm(): Promise<void> {
+    if ((await this.status()) !== 'playing') return;
+
+    const settings = (await this.meta()).settings;
+    const clock = await this.clockState();
+    const game = await this.loadGame();
+    const toPlay = seatOf(game.toPlay);
+
+    if (isExpired(clock, toPlay, settings.time, Date.now())) {
+      await this.finish(other(toPlay) === 'black' ? 'B+T' : 'W+T', null);
+      return;
+    }
+
+    // Разбудили раньше времени — переставляем будильник на настоящий дедлайн.
+    await this.armAlarm(clock, toPlay, settings);
   }
 
   private async onJoin(ws: WebSocket, lastSeq: number): Promise<void> {
@@ -210,6 +262,8 @@ export class Room extends DurableObject<Env> {
         yourColor: infoOf(ws)?.color ?? null,
         online: this.online(),
         result: await this.result(),
+        clock: await this.clockMessage(),
+        scoring: await this.scoring(),
       });
     } else {
       this.send(ws, await this.stateFor(ws));
@@ -218,12 +272,17 @@ export class Room extends DurableObject<Env> {
     await this.broadcastPresence();
   }
 
-  private async onMove(ws: WebSocket, seq: number, x: number, y: number): Promise<void> {
+  /** Ход и пас — одно и то же по учёту: номер, часы, запись, рассылка. */
+  private async onPlay(
+    ws: WebSocket,
+    seq: number,
+    point: { x: number; y: number } | null,
+  ): Promise<void> {
     const info = infoOf(ws);
     if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
 
     if ((await this.status()) !== 'playing') {
-      return this.fail(ws, 'not-playing', 'партия ещё не идёт');
+      return this.fail(ws, 'not-playing', 'сейчас не игра');
     }
 
     // Номер хода проверяется раньше очереди — и это важно именно в таком
@@ -241,37 +300,177 @@ export class Room extends DurableObject<Env> {
       return this.fail(ws, 'not-your-turn', 'сейчас не ваш ход');
     }
 
-    const result = play(game, { type: 'play', x, y });
+    const result = point
+      ? play(game, { type: 'play', x: point.x, y: point.y })
+      : play(game, { type: 'pass' });
     if (!result.ok) {
       this.fail(ws, 'illegal-move', result.reason);
       this.send(ws, await this.stateFor(ws));
       return;
     }
 
+    const settings = (await this.meta()).settings;
+    const now = Date.now();
+    const clock = afterMove(await this.clockState(), info.color, settings.time, now);
+    const next = result.value;
+    // Два паса подряд — движок сам переводит партию в подсчёт.
+    const scoringNow = next.phase === 'scoring';
+
     const record: MoveRecord = {
       seq: current + 1,
       color: info.color,
-      type: 'play',
-      x,
-      y,
-      at: Date.now(),
+      type: point ? 'play' : 'pass',
+      ...(point ?? {}),
+      at: now,
+      timeLeftMs: Math.round(sideMs(clock, info.color)),
     };
 
-    await this.ctx.storage.put({ [moveKey(record.seq)]: record, seq: record.seq });
-    this.cache = { seq: record.seq, game: result.value };
-    await this.maybeSnapshot(record.seq, result.value);
+    await this.ctx.storage.put({
+      [moveKey(record.seq)]: record,
+      seq: record.seq,
+      clock: scoringNow ? stopClock(clock) : clock,
+    });
+    this.cache = { seq: record.seq, game: next };
+    await this.maybeSnapshot(record.seq, next);
 
-    this.broadcast({ type: 'move', move: record, status: await this.status() });
+    if (scoringNow) {
+      await this.enterScoring(next);
+      return;
+    }
+
+    await this.armAlarm(clock, seatOf(next.toPlay), settings);
+    this.broadcast({
+      type: 'move',
+      move: record,
+      status: 'playing',
+      clock: toClockMessage(clock),
+    });
+  }
+
+  private async onResign(ws: WebSocket): Promise<void> {
+    const info = infoOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
+
+    const status = await this.status();
+    if (status !== 'playing' && status !== 'scoring') {
+      return this.fail(ws, 'not-playing', 'партия уже закончена');
+    }
+
+    // Сдаться можно и не в свою очередь, поэтому результат берётся из места
+    // сдавшегося, а не из того, чей сейчас ход.
+    await this.finish(other(info.color) === 'black' ? 'B+R' : 'W+R', null);
+  }
+
+  // --- подсчёт ---
+
+  private async enterScoring(game: GameState): Promise<void> {
+    // Эвристика движка — только подсказка: решают всё равно игроки.
+    const dead = new Set<number>();
+    for (const seed of guessDeadStones(game)) {
+      for (const stone of groupPoints(game, seed)) dead.add(stone);
+    }
+
+    const scoring: Scoring = { dead: [...dead], acceptedBy: [] };
+    await this.ctx.storage.put({ status: 'scoring' satisfies RoomStatus, scoring });
+    await this.ctx.storage.deleteAlarm();
+
+    this.broadcast({ type: 'scoring', scoring, status: 'scoring' });
+  }
+
+  private async onScoringToggle(ws: WebSocket, point: number): Promise<void> {
+    const info = infoOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
+    if ((await this.status()) !== 'scoring') {
+      return this.fail(ws, 'not-scoring', 'сейчас не подсчёт');
+    }
+
+    const game = await this.loadGame();
+    if (!game.board[point]) return;
+
+    const scoring = (await this.scoring()) ?? { dead: [], acceptedBy: [] };
+    const dead = new Set(scoring.dead);
+    const group = groupPoints(game, point);
+    const wasDead = group.every((stone) => dead.has(stone));
+    for (const stone of group) {
+      if (wasDead) dead.delete(stone);
+      else dead.add(stone);
+    }
+
+    // Любая правка снимает согласие обеих сторон: принимать нужно ту разметку,
+    // которую видишь, а не ту, что была минуту назад.
+    const next: Scoring = { dead: [...dead], acceptedBy: [] };
+    await this.ctx.storage.put('scoring', next);
+    this.broadcast({ type: 'scoring', scoring: next, status: 'scoring' });
+  }
+
+  private async onScoringAccept(ws: WebSocket): Promise<void> {
+    const info = infoOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
+    if ((await this.status()) !== 'scoring') {
+      return this.fail(ws, 'not-scoring', 'сейчас не подсчёт');
+    }
+
+    const scoring = (await this.scoring()) ?? { dead: [], acceptedBy: [] };
+    if (scoring.acceptedBy.includes(info.color)) return;
+
+    const next: Scoring = { ...scoring, acceptedBy: [...scoring.acceptedBy, info.color] };
+    await this.ctx.storage.put('scoring', next);
+
+    if (next.acceptedBy.length < 2) {
+      this.broadcast({ type: 'scoring', scoring: next, status: 'scoring' });
+      return;
+    }
+
+    const score = scoreArea(await this.loadGame(), next.dead);
+    await this.finish(score.result, { black: score.black, white: score.white });
+  }
+
+  private async onScoringResume(ws: WebSocket): Promise<void> {
+    const info = infoOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
+    if ((await this.status()) !== 'scoring') {
+      return this.fail(ws, 'not-scoring', 'сейчас не подсчёт');
+    }
+
+    const settings = (await this.meta()).settings;
+    const clock = resumeClock(await this.clockState(), Date.now());
+
+    await this.ctx.storage.put({ status: 'playing' satisfies RoomStatus, clock });
+    await this.ctx.storage.delete('scoring');
+    // Кэш держит позицию с фазой подсчёта — после возврата она уже не та.
+    this.cache = null;
+
+    const game = await this.loadGame();
+    await this.armAlarm(clock, seatOf(game.toPlay), settings);
+
+    for (const socket of this.ctx.getWebSockets()) {
+      this.send(socket, await this.stateFor(socket));
+    }
+  }
+
+  private async finish(
+    result: string,
+    score: { black: number; white: number } | null,
+  ): Promise<void> {
+    await this.ctx.storage.put({
+      status: 'finished' satisfies RoomStatus,
+      result,
+      clock: stopClock(await this.clockState()),
+    });
+    await this.ctx.storage.deleteAlarm();
+    this.cache = null;
+
+    this.broadcast({ type: 'over', result, scoring: await this.scoring(), score });
   }
 
   // --- состояние ---
 
   private async loadGame(): Promise<GameState> {
     const seq = await this.currentSeq();
+    const status = await this.status();
     if (this.cache?.seq === seq) return this.cache.game;
 
-    const meta = await this.ctx.storage.get<Meta>('meta');
-    if (!meta) throw new Error('комната без метаданных');
+    const meta = await this.meta();
     const { size, komi, handicap } = meta.settings;
 
     const snapshot = await this.ctx.storage.get<Snapshot>('snapshot');
@@ -304,6 +503,10 @@ export class Room extends DurableObject<Env> {
       state = next.value;
     }
 
+    // Фазу задаёт комната, а не список ходов: после «доиграть» два паса
+    // остаются в записи, но партия снова идёт.
+    if (status === 'playing' && state.phase === 'scoring') state = resumePlay(state);
+
     this.cache = { seq, game: state };
     return state;
   }
@@ -334,8 +537,7 @@ export class Room extends DurableObject<Env> {
   }
 
   private async stateFor(ws: WebSocket): Promise<ServerMessage> {
-    const meta = await this.ctx.storage.get<Meta>('meta');
-    if (!meta) throw new Error('комната без метаданных');
+    const meta = await this.meta();
     const seats = await this.seats();
 
     return {
@@ -348,6 +550,8 @@ export class Room extends DurableObject<Env> {
       yourColor: infoOf(ws)?.color ?? null,
       online: this.online(),
       result: await this.result(),
+      clock: await this.clockMessage(),
+      scoring: await this.scoring(),
     };
   }
 
@@ -363,16 +567,40 @@ export class Room extends DurableObject<Env> {
 
     seats[free] = { color: free, userId: user.id, name: user.name };
     await this.ctx.storage.put('seats', seats);
+
     if (seats.black && seats.white) {
-      await this.ctx.storage.put('status', 'playing' satisfies RoomStatus);
+      // Второй игрок сел — партия пошла, и вместе с ней часы.
+      const settings = (await this.meta()).settings;
+      const clock = resumeClock(await this.clockState(), Date.now());
+      await this.ctx.storage.put({ status: 'playing' satisfies RoomStatus, clock });
+      await this.armAlarm(clock, seatOf((await this.loadGame()).toPlay), settings);
     }
     return free;
+  }
+
+  private async armAlarm(
+    clock: ClockState,
+    toPlay: SeatColor,
+    settings: GameSettings,
+  ): Promise<void> {
+    const at = deadline(clock, toPlay, settings.time);
+    if (at === null) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    await this.ctx.storage.setAlarm(at);
   }
 
   private colorOf(seats: Seats, userId: number): SeatColor | null {
     if (seats.black?.userId === userId) return 'black';
     if (seats.white?.userId === userId) return 'white';
     return null;
+  }
+
+  private async meta(): Promise<Meta> {
+    const meta = await this.ctx.storage.get<Meta>('meta');
+    if (!meta) throw new Error('комната без метаданных');
+    return meta;
   }
 
   private async seats(): Promise<Seats> {
@@ -385,6 +613,19 @@ export class Room extends DurableObject<Env> {
 
   private async result(): Promise<string | null> {
     return (await this.ctx.storage.get<string | null>('result')) ?? null;
+  }
+
+  private async scoring(): Promise<Scoring | null> {
+    return (await this.ctx.storage.get<Scoring>('scoring')) ?? null;
+  }
+
+  private async clockState(): Promise<ClockState> {
+    const stored = await this.ctx.storage.get<ClockState>('clock');
+    return stored ?? initialClock((await this.meta()).settings.time);
+  }
+
+  private async clockMessage(): Promise<Clock> {
+    return toClockMessage(await this.clockState());
   }
 
   private async currentSeq(): Promise<number> {
@@ -446,6 +687,28 @@ function freeSeat(seats: Seats): SeatColor | null {
   if (!seats.black) return 'black';
   if (!seats.white) return 'white';
   return null;
+}
+
+function sideMs(clock: ClockState, color: SeatColor): number {
+  return color === 'black' ? clock.blackMs : clock.whiteMs;
+}
+
+function toClockMessage(clock: ClockState): Clock {
+  return {
+    blackMs: Math.round(clock.blackMs),
+    whiteMs: Math.round(clock.whiteMs),
+    blackPeriods: clock.blackPeriods,
+    whitePeriods: clock.whitePeriods,
+    lastMoveAt: clock.lastMoveAt,
+    serverNow: Date.now(),
+  };
+}
+
+/** Вся цепочка, к которой принадлежит камень: тап по одному отмечает группу. */
+function groupPoints(game: GameState, point: number): number[] {
+  const stones = new Int32Array(game.size * game.size);
+  const info = groupAt(game.board, game.size, point, stones);
+  return Array.from(stones.subarray(0, info.count));
 }
 
 function toEngineMove(move: MoveRecord) {

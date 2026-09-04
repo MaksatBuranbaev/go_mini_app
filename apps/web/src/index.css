@@ -89,6 +89,56 @@ body {
   opacity: 0.9;
 }
 
+/* Часы обоих игроков под заголовком партии. */
+.clocks {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.clock {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  background: var(--tg-theme-secondary-bg-color, #f4f4f5);
+  color: var(--tg-theme-hint-color, #707579);
+}
+
+/* Идущие часы выделены: иначе непонятно, чьё время убывает. */
+.clock-active {
+  color: var(--tg-theme-text-color, #000000);
+  font-weight: 600;
+}
+
+.clock-mine {
+  outline: 1px solid var(--tg-theme-button-color, #3390ec);
+}
+
+.clock-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.clock-dot-black {
+  background: #111111;
+}
+
+.clock-dot-white {
+  background: #f5f2e8;
+  border: 1px solid rgba(0, 0, 0, 0.35);
+}
+
+.actions-row {
+  display: flex;
+  gap: 8px;
+}
+
 /* Экраны приглашения и ожидания длиннее доски и должны прокручиваться. */
 .screen-scroll {
   overflow-y: auto;

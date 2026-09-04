@@ -3,6 +3,7 @@ import { Button, Cell, Placeholder, Section, Spinner } from '@telegram-apps/tele
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchRoomPreview } from '../api/room.js';
 import { hasNativeButtons, useBackButton, useMainButton } from '../telegram/buttons.js';
+import { timeControlText } from './RoomScreen.js';
 
 export interface JoinScreenProps {
   roomId: string;
@@ -83,6 +84,7 @@ export function JoinScreen({ roomId, onAccept, onCancel }: JoinScreenProps) {
         <Cell subtitle="Фора">
           {preview.settings.handicap === 0 ? 'нет' : preview.settings.handicap}
         </Cell>
+        <Cell subtitle="Время">{timeControlText(preview.settings)}</Cell>
         <Cell subtitle="Правила">Китайские, позиционный суперко</Cell>
       </Section>
 

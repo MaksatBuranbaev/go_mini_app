@@ -18,12 +18,37 @@ export type SeatColor = z.infer<typeof ColorSchema>;
 
 export const BoardSizeSchema = z.union([z.literal(9), z.literal(13), z.literal(19)]);
 
+/**
+ * Контроль времени.
+ *
+ * Фишер: за каждый сделанный ход к остатку прибавляется `incrementMs`.
+ * Бёёми: когда основное время кончилось, у игрока остаётся `periods`
+ * периодов по `periodMs`; ход, уложившийся в период, его не тратит.
+ */
+export const TimeControlSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('none') }),
+  z.object({
+    type: z.literal('fischer'),
+    mainMs: z.number().int().positive(),
+    incrementMs: z.number().int().nonnegative(),
+  }),
+  z.object({
+    type: z.literal('byoyomi'),
+    mainMs: z.number().int().nonnegative(),
+    periodMs: z.number().int().positive(),
+    periods: z.number().int().positive().max(10),
+  }),
+]);
+
+export type TimeControl = z.infer<typeof TimeControlSchema>;
+
 export const GameSettingsSchema = z.object({
   size: BoardSizeSchema,
   komi: z.number().min(-100).max(100),
   handicap: z.number().int().min(0).max(9),
   /** Цвет создателя. `random` комната разыгрывает один раз, при создании. */
   creatorColor: z.enum(['black', 'white', 'random']),
+  time: TimeControlSchema,
 });
 
 export type GameSettings = z.infer<typeof GameSettingsSchema>;
@@ -51,6 +76,8 @@ export const MoveRecordSchema = z.object({
   x: z.number().int().nonnegative().optional(),
   y: z.number().int().nonnegative().optional(),
   at: z.number().int().nonnegative(),
+  /** Сколько времени осталось у ходившего сразу после хода. */
+  timeLeftMs: z.number().int().nonnegative().optional(),
 });
 
 export type MoveRecord = z.infer<typeof MoveRecordSchema>;
@@ -111,6 +138,30 @@ export type ApiError = z.infer<typeof ApiErrorSchema>;
 // --- WebSocket: клиент → комната ---
 
 /**
+ * Показания часов на момент `lastMoveAt`. Клиент интерполирует их сам,
+ * а `serverNow` нужен, чтобы вычесть расхождение его часов с комнатой.
+ */
+export const ClockSchema = z.object({
+  blackMs: z.number().int().nonnegative(),
+  whiteMs: z.number().int().nonnegative(),
+  blackPeriods: z.number().int().nonnegative(),
+  whitePeriods: z.number().int().nonnegative(),
+  /** Момент, от которого течёт время текущего игрока. Null — часы стоят. */
+  lastMoveAt: z.number().int().nonnegative().nullable(),
+  serverNow: z.number().int().nonnegative(),
+});
+
+export type Clock = z.infer<typeof ClockSchema>;
+
+/** Разметка мёртвых камней и то, кто из игроков её уже принял. */
+export const ScoringSchema = z.object({
+  dead: z.array(z.number().int().nonnegative()),
+  acceptedBy: z.array(ColorSchema),
+});
+
+export type Scoring = z.infer<typeof ScoringSchema>;
+
+/**
  * `lastSeq` — номер последнего хода, который клиент уже видел. Ноль означает
  * «начинаю с нуля, пришлите всё».
  */
@@ -131,10 +182,31 @@ export const ClientMoveSchema = z.object({
   y: z.number().int().nonnegative(),
 });
 
-// Пас, сдача и разметка мёртвых камней появятся вместе с завершением партии.
+/** Пас идёт с тем же `seq`, что и обычный ход: он такой же ход по счёту. */
+export const ClientPassSchema = z.object({
+  type: z.literal('pass'),
+  seq: z.number().int().positive(),
+});
+
+export const ClientResignSchema = z.object({ type: z.literal('resign') });
+
+/** Тап по группе в фазе подсчёта. Любая правка снимает согласие обеих сторон. */
+export const ClientScoringToggleSchema = z.object({
+  type: z.literal('scoring:toggle'),
+  point: z.number().int().nonnegative(),
+});
+
+export const ClientScoringAcceptSchema = z.object({ type: z.literal('scoring:accept') });
+export const ClientScoringResumeSchema = z.object({ type: z.literal('scoring:resume') });
+
 export const ClientMessageSchema = z.discriminatedUnion('type', [
   ClientJoinSchema,
   ClientMoveSchema,
+  ClientPassSchema,
+  ClientResignSchema,
+  ClientScoringToggleSchema,
+  ClientScoringAcceptSchema,
+  ClientScoringResumeSchema,
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -152,6 +224,8 @@ export const ServerStateSchema = z.object({
   yourColor: ColorSchema.nullable(),
   online: z.array(ColorSchema),
   result: z.string().nullable(),
+  clock: ClockSchema,
+  scoring: ScoringSchema.nullable(),
 });
 
 export type ServerState = z.infer<typeof ServerStateSchema>;
@@ -165,12 +239,45 @@ export const ServerSyncSchema = z.object({
   yourColor: ColorSchema.nullable(),
   online: z.array(ColorSchema),
   result: z.string().nullable(),
+  clock: ClockSchema,
+  scoring: ScoringSchema.nullable(),
 });
 
 export const ServerMoveSchema = z.object({
   type: z.literal('move'),
   move: MoveRecordSchema,
   status: RoomStatusSchema,
+  clock: ClockSchema,
+});
+
+/**
+ * Сверка часов. Комната шлёт её вместе с ходами и на подключение; между
+ * ними клиент считает остаток сам, вычитая время от `lastMoveAt`.
+ */
+export const ServerClockSchema = z.object({
+  type: z.literal('clock'),
+  clock: ClockSchema,
+});
+
+/** Разметка мёртвых камней изменилась у кого-то из игроков. */
+export const ServerScoringSchema = z.object({
+  type: z.literal('scoring'),
+  scoring: ScoringSchema,
+  status: RoomStatusSchema,
+});
+
+/** Партия закрыта: подсчётом, сдачей или просрочкой. */
+export const ServerOverSchema = z.object({
+  type: z.literal('over'),
+  result: z.string(),
+  scoring: ScoringSchema.nullable(),
+  /** Итог подсчёта, если партия закрылась счётом, а не сдачей или временем. */
+  score: z
+    .object({
+      black: z.number(),
+      white: z.number(),
+    })
+    .nullable(),
 });
 
 export const ServerPresenceSchema = z.object({
@@ -186,6 +293,7 @@ export const WsErrorCodeSchema = z.enum([
   'not-your-turn',
   'not-playing',
   'illegal-move',
+  'not-scoring',
 ]);
 
 export type WsErrorCode = z.infer<typeof WsErrorCodeSchema>;
@@ -200,6 +308,9 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   ServerStateSchema,
   ServerSyncSchema,
   ServerMoveSchema,
+  ServerClockSchema,
+  ServerScoringSchema,
+  ServerOverSchema,
   ServerPresenceSchema,
   ServerErrorSchema,
 ]);

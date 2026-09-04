@@ -1,26 +1,31 @@
-import {
-  BLACK,
-  WHITE,
-  createGame,
-  play,
-  type Color,
-  type GameState,
-} from '@go/engine';
+import { BLACK, WHITE, createGame, play, type Color, type GameState } from '@go/engine';
 import {
   ServerMessageSchema,
   type ClientMessage,
+  type Clock,
   type GameSettings,
   type MoveRecord,
   type RoomStatus,
+  type Scoring,
   type Seat,
   type SeatColor,
 } from '@go/protocol';
 import ReconnectingWebSocket from 'partysocket/ws';
 import { create } from 'zustand';
 import { roomSocketUrl } from '../api/room.js';
-import { aimFeedback, captureFeedback, rejectFeedback, stoneFeedback } from '../telegram/feedback.js';
+import {
+  aimFeedback,
+  captureFeedback,
+  rejectFeedback,
+  stoneFeedback,
+} from '../telegram/feedback.js';
 
 export type Connection = 'idle' | 'connecting' | 'online' | 'offline';
+
+export interface FinalScore {
+  black: number;
+  white: number;
+}
 
 interface OnlineStore {
   roomId: string | null;
@@ -31,6 +36,12 @@ interface OnlineStore {
   online: SeatColor[];
   yourColor: SeatColor | null;
   result: string | null;
+  score: FinalScore | null;
+
+  clock: Clock | null;
+  /** Насколько часы браузера убежали от часов комнаты, мс. */
+  clockOffset: number;
+  scoring: Scoring | null;
 
   game: GameState | null;
   /** Номер последнего применённого хода. Он же уезжает в join при реконнекте. */
@@ -47,6 +58,11 @@ interface OnlineStore {
   aim: (point: number) => void;
   clearAim: () => void;
   confirmMove: () => void;
+  pass: () => void;
+  resign: () => void;
+  toggleDead: (point: number) => void;
+  acceptScore: () => void;
+  resumeGame: () => void;
 }
 
 /** Сокет живёт вне стора: он не состояние, а канал, и в рендере не участвует. */
@@ -61,6 +77,10 @@ const IDLE = {
   online: [] as SeatColor[],
   yourColor: null,
   result: null,
+  score: null,
+  clock: null,
+  clockOffset: 0,
+  scoring: null,
   game: null,
   lastSeq: 0,
   lastMove: null,
@@ -86,9 +106,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
       sendMessage({ type: 'join', lastSeq: get().lastSeq });
     });
 
-    socket.addEventListener('close', () => {
-      set({ connection: 'offline' });
-    });
+    socket.addEventListener('close', () => set({ connection: 'offline' }));
 
     socket.addEventListener('message', (event: MessageEvent<string>) => {
       let payload: unknown;
@@ -159,6 +177,28 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 
     sendMessage({ type: 'move', seq: lastSeq + 1, ...coords(game, pending) });
   },
+
+  // Пас оптимистично не показывается: он может закончить партию, и рисовать
+  // это до ответа комнаты не стоит.
+  pass: () => {
+    const { game, status, yourColor, lastSeq } = get();
+    if (!game || status !== 'playing' || !yourColor) return;
+    if (seatOf(game.toPlay) !== yourColor) return;
+    set({ pending: null, rejected: null, notice: null });
+    sendMessage({ type: 'pass', seq: lastSeq + 1 });
+  },
+
+  resign: () => sendMessage({ type: 'resign' }),
+
+  toggleDead: (point) => {
+    if (get().status !== 'scoring') return;
+    aimFeedback();
+    sendMessage({ type: 'scoring:toggle', point });
+  },
+
+  acceptScore: () => sendMessage({ type: 'scoring:accept' }),
+
+  resumeGame: () => sendMessage({ type: 'scoring:resume' }),
 }));
 
 type Setter = (partial: Partial<OnlineStore>) => void;
@@ -179,12 +219,14 @@ function handleServerMessage(
         online: message.online,
         yourColor: message.yourColor,
         result: message.result,
+        scoring: message.scoring,
         game: replayed.game,
         lastSeq: replayed.lastSeq,
         lastMove: replayed.lastMove,
         pending: null,
         awaiting: null,
         rejected: null,
+        ...clockPatch(message.clock),
       });
       return;
     }
@@ -196,28 +238,53 @@ function handleServerMessage(
         online: message.online,
         yourColor: message.yourColor,
         result: message.result,
+        scoring: message.scoring,
+        ...clockPatch(message.clock),
       });
       for (const move of message.moves) applyMove(move, set, get);
       return;
     }
 
     case 'move': {
-      set({ status: message.status });
+      set({ status: message.status, ...clockPatch(message.clock) });
       applyMove(message.move, set, get);
       return;
     }
+
+    case 'clock':
+      set(clockPatch(message.clock));
+      return;
+
+    case 'scoring':
+      set({ status: message.status, scoring: message.scoring, pending: null, rejected: null });
+      return;
+
+    case 'over':
+      set({
+        status: 'finished',
+        result: message.result,
+        scoring: message.scoring,
+        score: message.score,
+        pending: null,
+        awaiting: null,
+      });
+      return;
 
     case 'presence':
       set({ online: message.online, seats: message.seats, status: message.status });
       return;
 
-    case 'error': {
+    case 'error':
       // Рассинхрон комната чинит сама, прислав состояние следом. Здесь только
       // текст для игрока — и снятие оптимистичного хода, чтобы доска не врала.
       set({ awaiting: null, notice: message.message });
       return;
-    }
   }
+}
+
+/** Разница часов считается по каждому сообщению: соединение может и мигать. */
+function clockPatch(clock: Clock): Partial<OnlineStore> {
+  return { clock, clockOffset: Date.now() - clock.serverNow };
 }
 
 function applyMove(move: MoveRecord, set: Setter, get: Getter): void {
@@ -231,16 +298,14 @@ function applyMove(move: MoveRecord, set: Setter, get: Getter): void {
   }
   if (move.seq !== lastSeq + 1) return;
 
-  if (move.type !== 'play' || move.x === undefined || move.y === undefined) return;
-
-  const result = play(game, { type: 'play', x: move.x, y: move.y });
+  const result = play(game, toEngineMove(move));
   if (!result.ok) return;
 
-  feedbackFor(game, result.value);
+  if (move.type === 'play') feedbackFor(game, result.value);
   set({
     game: result.value,
     lastSeq: move.seq,
-    lastMove: move.y * game.size + move.x,
+    lastMove: move.type === 'play' ? move.y! * game.size + move.x! : null,
     awaiting: null,
     pending: null,
     rejected: null,
@@ -261,15 +326,19 @@ function replay(
   let lastSeq = 0;
 
   for (const move of moves) {
-    if (move.type !== 'play' || move.x === undefined || move.y === undefined) continue;
-    const result = play(game, { type: 'play', x: move.x, y: move.y });
+    const result = play(game, toEngineMove(move));
     if (!result.ok) break;
     game = result.value;
-    lastMove = move.y * settings.size + move.x;
+    lastMove = move.type === 'play' ? move.y! * settings.size + move.x! : null;
     lastSeq = move.seq;
   }
 
   return { game, lastSeq, lastMove };
+}
+
+function toEngineMove(move: MoveRecord) {
+  if (move.type === 'play') return { type: 'play' as const, x: move.x!, y: move.y! };
+  return move.type === 'pass' ? { type: 'pass' as const } : { type: 'resign' as const };
 }
 
 function sendMessage(message: ClientMessage): void {
@@ -282,7 +351,9 @@ function coords(game: GameState, point: number): { x: number; y: number } {
 
 function feedbackFor(before: GameState, after: GameState): void {
   const captured =
-    after.capturedByBlack - before.capturedByBlack + (after.capturedByWhite - before.capturedByWhite);
+    after.capturedByBlack -
+    before.capturedByBlack +
+    (after.capturedByWhite - before.capturedByWhite);
   if (captured > 0) captureFeedback();
   else stoneFeedback();
 }
