@@ -2,7 +2,7 @@
 import { check, report, sleep } from './lib/harness.mjs';
 import { Tab } from './lib/tab.mjs';
 
-/** Считаем осцилляторы: звук синтезируется, файлов для проверки нет. */
+/** Считаем источники звука: он синтезируется, файлов для проверки нет. */
 const SPY = `
   // Прошлый прогон мог выключить звук — сбрасываем настройку один раз,
   // иначе перезагрузка внутри теста затрёт то, что тест и проверяет.
@@ -16,6 +16,7 @@ const SPY = `
   const RealCtx = window.AudioContext;
   window.AudioContext = class extends RealCtx {
     createOscillator() { window.__osc++; return super.createOscillator(); }
+    createBufferSource() { window.__osc++; return super.createBufferSource(); }
   };
 `;
 
@@ -40,7 +41,7 @@ await a.tap(4, 4);
 await b.waitForText('.status-main', (t) => t.includes('Ваш ход'));
 await sleep(400);
 const afterMove = await a.evaluate('window.__osc');
-check('ход звучит', afterMove > 0, `осцилляторов ${afterMove}`);
+check('ход звучит', afterMove >= 2, `источников ${afterMove}`);
 
 console.log('--- анимация захвата ---');
 // Белый камень в углу теряет свободы одну за другой: снимает его последний
@@ -68,7 +69,7 @@ await sleep(400);
 check('анимация заканчивается', (await a.evaluate(`document.querySelector('canvas').toDataURL()`)) === after);
 
 const oscAfter = await a.evaluate('window.__osc');
-check('захват звучит громче хода', oscAfter - oscBefore >= 2, `осцилляторов ${oscAfter - oscBefore}`);
+check('захват звучит богаче хода', oscAfter - oscBefore >= 5, `источников ${oscAfter - oscBefore}`);
 
 // И у соперника снятый камень тоже пропал.
 await b.waitForText('.status-main', (t) => t.includes('Ваш ход'));
