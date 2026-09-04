@@ -2,8 +2,9 @@ import { areaOwners } from '@go/engine';
 import type { GameSettings, Seat, SeatColor } from '@go/protocol';
 import { isMiniAppDark, openTelegramLink, useSignal } from '@telegram-apps/sdk-react';
 import { Button, Cell, Section } from '@telegram-apps/telegram-ui';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { inviteLink } from '../api/room.js';
+import { archiveGame } from '../archive/save.js';
 import { Board } from '../board/Board.js';
 import { hasNativeButtons, useBackButton, useMainButton } from '../telegram/buttons.js';
 import { confirmAction } from '../telegram/feedback.js';
@@ -28,6 +29,27 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
     connect(roomId);
     return () => leave();
   }, [roomId, settings, connect, leave]);
+
+  // Партия кладётся в архив ровно один раз: экран живёт и после конца партии,
+  // а `status` меняется ещё и от presence.
+  const archived = useRef<string | null>(null);
+  useEffect(() => {
+    if (store.status !== 'finished' || !store.game || archived.current === roomId) return;
+    archived.current = roomId;
+
+    const active = store.settings ?? settings;
+    void archiveGame({
+      id: roomId,
+      size: active.size,
+      komi: active.komi,
+      handicap: active.handicap,
+      result: store.result,
+      record: store.record,
+      black: nameOf(store.seats, 'black'),
+      white: nameOf(store.seats, 'white'),
+      local: false,
+    }).catch((cause: unknown) => console.warn('[архив] партия не сохранилась', cause));
+  }, [store.status, store.game, store.result, store.record, store.seats, store.settings, roomId, settings]);
 
   const exit = useCallback(async () => {
     if (store.status === 'playing' || store.status === 'scoring') {
@@ -339,4 +361,8 @@ export function timeControlText(settings: GameSettings): string {
 
 function colorWord(color: SeatColor): string {
   return color === 'black' ? 'чёрными' : 'белыми';
+}
+
+function nameOf(seats: Seat[], color: SeatColor): string {
+  return seats.find((seat) => seat.color === color)?.name ?? (color === 'black' ? 'Чёрные' : 'Белые');
 }

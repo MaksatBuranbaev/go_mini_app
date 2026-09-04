@@ -1,4 +1,12 @@
-import { BLACK, WHITE, createGame, play, type Color, type GameState } from '@go/engine';
+import {
+  BLACK,
+  WHITE,
+  createGame,
+  play,
+  type Color,
+  type GameState,
+  type RecordedMove,
+} from '@go/engine';
 import {
   ServerMessageSchema,
   type ClientMessage,
@@ -44,6 +52,8 @@ interface OnlineStore {
   scoring: Scoring | null;
 
   game: GameState | null;
+  /** Ходы по порядку — из них собирается SGF для архива. */
+  record: RecordedMove[];
   /** Номер последнего применённого хода. Он же уезжает в join при реконнекте. */
   lastSeq: number;
   /** Последний номер, который подтвердила комната. Свой ход его не двигает. */
@@ -112,6 +122,7 @@ const IDLE = {
   clockOffset: 0,
   scoring: null,
   game: null,
+  record: [] as RecordedMove[],
   lastSeq: 0,
   ackSeq: 0,
   lastMove: null,
@@ -199,6 +210,7 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
     feedbackFor(game, result.value);
     set({
       game: result.value,
+      record: [...get().record, { color: game.toPlay, move: { type: 'play', ...coords(game, pending) } }],
       lastSeq: lastSeq + 1,
       lastMove: pending,
       pending: null,
@@ -255,6 +267,7 @@ function handleServerMessage(
         result: message.result,
         scoring: message.scoring,
         game: replayed.game,
+        record: replayed.record,
         lastSeq: replayed.lastSeq,
         ackSeq: replayed.lastSeq,
         lastMove: replayed.lastMove,
@@ -346,6 +359,7 @@ function applyMove(move: MoveRecord, set: Setter, get: Getter): void {
   if (move.type === 'play') feedbackFor(game, result.value);
   set({
     game: result.value,
+    record: [...get().record, { color: game.toPlay, move: toEngineMove(move) }],
     lastSeq: move.seq,
     ackSeq: move.seq,
     lastMove: move.type === 'play' ? move.y! * game.size + move.x! : null,
@@ -359,24 +373,26 @@ function applyMove(move: MoveRecord, set: Setter, get: Getter): void {
 function replay(
   settings: GameSettings,
   moves: MoveRecord[],
-): { game: GameState; lastSeq: number; lastMove: number | null } {
+): { game: GameState; record: RecordedMove[]; lastSeq: number; lastMove: number | null } {
   let game = createGame({
     size: settings.size,
     komi: settings.komi,
     handicap: settings.handicap,
   });
+  const record: RecordedMove[] = [];
   let lastMove: number | null = null;
   let lastSeq = 0;
 
   for (const move of moves) {
     const result = play(game, toEngineMove(move));
     if (!result.ok) break;
+    record.push({ color: game.toPlay, move: toEngineMove(move) });
     game = result.value;
     lastMove = move.type === 'play' ? move.y! * settings.size + move.x! : null;
     lastSeq = move.seq;
   }
 
-  return { game, lastSeq, lastMove };
+  return { game, record, lastSeq, lastMove };
 }
 
 function toEngineMove(move: MoveRecord) {

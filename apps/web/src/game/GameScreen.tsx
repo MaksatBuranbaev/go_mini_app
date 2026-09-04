@@ -1,7 +1,8 @@
 import { areaOwners, type GameState, type ScoreResult } from '@go/engine';
 import { isMiniAppDark, useSignal } from '@telegram-apps/sdk-react';
 import { Button } from '@telegram-apps/telegram-ui';
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { archiveGame } from '../archive/save.js';
 import { Board } from '../board/Board.js';
 import { hasNativeButtons, useBackButton, useMainButton } from '../telegram/buttons.js';
 import { confirmAction } from '../telegram/feedback.js';
@@ -10,6 +11,7 @@ import { colorName, illegalText, useGameStore } from './store.js';
 export function GameScreen() {
   const {
     game,
+    record,
     pending,
     rejected,
     illegal,
@@ -33,6 +35,28 @@ export function GameScreen() {
     () => (game && game.phase !== 'playing' ? areaOwners(game, dead) : null),
     [game, dead],
   );
+
+  // Партия на одном устройстве комнаты не имеет, поэтому id выдаём сами —
+  // один на партию, чтобы повторные рендеры не плодили записи.
+  const localId = useRef<string | null>(null);
+  const archived = useRef(false);
+  useEffect(() => {
+    if (!game || game.phase !== 'finished' || archived.current) return;
+    archived.current = true;
+    localId.current ??= `hs${Date.now().toString(36)}`;
+
+    void archiveGame({
+      id: localId.current,
+      size: game.size,
+      komi: game.komi,
+      handicap: game.handicap,
+      result: game.result,
+      record,
+      black: 'Чёрные',
+      white: 'Белые',
+      local: true,
+    }).catch((cause: unknown) => console.warn('[архив] партия не сохранилась', cause));
+  }, [game, record]);
 
   const doPass = useCallback(async () => {
     const confirmed = await confirmAction(

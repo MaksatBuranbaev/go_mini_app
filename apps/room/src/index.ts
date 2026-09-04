@@ -117,7 +117,7 @@ export default {
       );
     }
 
-    const roomMatch = url.pathname.match(/^\/rooms\/([^/]+)(\/ws)?$/);
+    const roomMatch = url.pathname.match(/^\/rooms\/([^/]+)(\/ws|\/sgf)?$/);
     if (roomMatch) {
       const parsed = RoomIdSchema.safeParse(decodeURIComponent(roomMatch[1]!));
       if (!parsed.success) {
@@ -129,8 +129,22 @@ export default {
       if (!user) return unauthorized(request, env);
 
       // GET /rooms/:id/ws — живое соединение с комнатой.
-      if (roomMatch[2]) {
+      if (roomMatch[2] === '/ws') {
         return roomStub(env, roomId).fetch(internalRequest(request, user));
+      }
+
+      // GET /rooms/:id/sgf — запись партии текстом.
+      if (roomMatch[2] === '/sgf' && request.method === 'GET') {
+        const sgf = await roomStub(env, roomId).sgfText();
+        if (!sgf) return fail('not-found', 'комната не найдена', request, env, 404);
+        return new Response(sgf, {
+          headers: {
+            'Content-Type': 'application/x-go-sgf; charset=utf-8',
+            'Content-Disposition': `attachment; filename="${roomId}.sgf"`,
+            'Cache-Control': 'no-store',
+            ...corsHeaders(request, env),
+          },
+        });
       }
 
       // GET /rooms/:id — превью для экрана приглашения.

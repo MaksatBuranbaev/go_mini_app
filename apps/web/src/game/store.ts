@@ -11,6 +11,7 @@ import {
   scoreArea,
   type GameState,
   type IllegalReason,
+  type RecordedMove,
   type ScoreResult,
 } from '@go/engine';
 import { create } from 'zustand';
@@ -37,6 +38,8 @@ export function settingsFor(size: number, handicap: number): GameSettings {
 interface GameStore {
   game: GameState | null;
   settings: GameSettings | null;
+  /** Ходы по порядку — из них собирается SGF для архива. */
+  record: RecordedMove[];
   /** Намеченный, но не подтверждённый ход — первый тап из двух. */
   pending: number | null;
   /** Последняя точка, отвергнутая правилами: держится до следующего тапа. */
@@ -61,6 +64,7 @@ interface GameStore {
 const IDLE = {
   game: null,
   settings: null,
+  record: [] as RecordedMove[],
   pending: null,
   rejected: null,
   illegal: null,
@@ -123,7 +127,14 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (captured > 0) captureFeedback();
     else stoneFeedback();
 
-    set({ game: next, lastMove: pending, pending: null, rejected: null, illegal: null });
+    set({
+      game: next,
+      record: [...get().record, { color: game.toPlay, move: { type: 'play', ...coords(game, pending) } }],
+      lastMove: pending,
+      pending: null,
+      rejected: null,
+      illegal: null,
+    });
   },
 
   pass: () => {
@@ -136,8 +147,10 @@ export const useGameStore = create<GameStore>((set, get) => ({
     const next = result.value;
     stoneFeedback();
 
+    const record: RecordedMove[] = [...get().record, { color: game.toPlay, move: { type: 'pass' } }];
+
     if (next.phase !== 'scoring') {
-      set({ game: next, lastMove: null, pending: null, rejected: null, illegal: null });
+      set({ game: next, record, lastMove: null, pending: null, rejected: null, illegal: null });
       return;
     }
 
@@ -148,6 +161,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
     set({
       game: next,
+      record,
       lastMove: null,
       pending: null,
       rejected: null,

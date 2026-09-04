@@ -8,7 +8,10 @@ import {
   resumePlay,
   scoreArea,
   stateFromBoard,
+  toSgf,
+  WHITE,
   type Color,
+  type GameRecord,
   type GameState,
 } from '@go/engine';
 import {
@@ -26,6 +29,7 @@ import {
 } from '@go/protocol';
 import { DurableObject } from 'cloudflare:workers';
 import type { RoomUser } from './auth.js';
+import { notifyTurn } from './notify.js';
 import {
   afterMove,
   deadline,
@@ -153,6 +157,42 @@ export class Room extends DurableObject<Env> {
       seats: seatList(seats),
       yourColor: this.colorOf(seats, user.id) ?? freeSeat(seats),
     };
+  }
+
+  /** Запись партии в SGF: всё, что комната знает о ходах, одной строкой. */
+  async sgfText(): Promise<string | null> {
+    const meta = await this.ctx.storage.get<Meta>('meta');
+    if (!meta) return null;
+
+    const { size, komi, handicap } = meta.settings;
+    const seats = await this.seats();
+    const moves = await this.movesBetween(1, await this.currentSeq());
+
+    const record: GameRecord = {
+      size,
+      komi,
+      handicap,
+      moves: moves.map((move) => ({
+        color: move.color === 'black' ? BLACK : WHITE,
+        move: toEngineMove(move),
+      })),
+      date: new Date(meta.createdAt).toISOString().slice(0, 10),
+      players: { black: seats.black?.name, white: seats.white?.name },
+    };
+
+    const result = await this.result();
+    if (result) record.result = result;
+
+    // Форовые камни в записи — это не ходы, а расстановка: их ставит движок
+    // при создании партии, оттуда их и берём.
+    if (handicap >= 2) {
+      const start = createGame({ size, komi, handicap });
+      const black: number[] = [];
+      for (let i = 0; i < start.board.length; i++) if (start.board[i] === BLACK) black.push(i);
+      record.setup = { black, white: [] };
+    }
+
+    return toSgf(record);
   }
 
   /** Апгрейд в WebSocket. Место за доской занимается здесь же, до accept. */
@@ -333,18 +373,40 @@ export class Room extends DurableObject<Env> {
     this.cache = { seq: record.seq, game: next };
     await this.maybeSnapshot(record.seq, next);
 
+    // Ход рассылается раньше перехода в подсчёт: второй пас — такой же ход
+    // с номером, и без него запись партии обрывается, а `lastSeq` у клиентов
+    // отстаёт от комнаты.
+    this.broadcast({
+      type: 'move',
+      move: record,
+      status: scoringNow ? 'scoring' : 'playing',
+      clock: toClockMessage(scoringNow ? stopClock(clock) : clock),
+    });
+
     if (scoringNow) {
       await this.enterScoring(next);
       return;
     }
 
     await this.armAlarm(clock, seatOf(next.toPlay), settings);
-    this.broadcast({
-      type: 'move',
-      move: record,
-      status: 'playing',
-      clock: toClockMessage(clock),
-    });
+    await this.notifyIfAway(seatOf(next.toPlay), info.name);
+  }
+
+  /**
+   * Соперник закрыл мини-апп — зовём его ботом. Уведомление отправляется
+   * в фоне: ход уже записан и разослан, и держать ради письма обработчик
+   * сообщения незачем.
+   */
+  private async notifyIfAway(color: SeatColor, opponentName: string): Promise<void> {
+    if (this.online().includes(color)) return;
+
+    const seat = (await this.seats())[color];
+    if (!seat) return;
+
+    const meta = await this.meta();
+    this.ctx.waitUntil(
+      notifyTurn(this.env, { userId: seat.userId, roomId: meta.roomId, opponentName }),
+    );
   }
 
   private async onResign(ws: WebSocket): Promise<void> {

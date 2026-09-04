@@ -67,6 +67,15 @@ export async function fetchRoomPreview(roomId: string): Promise<RoomPreview> {
   return RoomPreviewSchema.parse(await request(`/rooms/${encodeURIComponent(roomId)}`));
 }
 
+/** Запись партии из комнаты. Нужна, когда её нет в облаке у игрока. */
+export async function fetchSgf(roomId: string): Promise<string | null> {
+  const response = await fetch(`${ROOM_URL}/rooms/${encodeURIComponent(roomId)}/sgf`, {
+    headers: authHeaders(),
+  });
+  if (!response.ok) return null;
+  return response.text();
+}
+
 /**
  * Адрес живого соединения. Браузерный WebSocket не умеет заголовки, поэтому
  * initData уезжает параметром запроса — другого места для него нет.

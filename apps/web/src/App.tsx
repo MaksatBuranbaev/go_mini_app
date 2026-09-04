@@ -1,5 +1,7 @@
 import type { GameSettings } from '@go/protocol';
 import { useState } from 'react';
+import { ArchiveScreen } from './archive/ArchiveScreen.js';
+import { ReviewScreen } from './archive/ReviewScreen.js';
 import { GameScreen } from './game/GameScreen.js';
 import { useGameStore } from './game/store.js';
 import { LobbyScreen } from './lobby/LobbyScreen.js';
@@ -16,7 +18,9 @@ import { startParam } from './telegram/init.js';
 type Route =
   | { view: 'lobby' }
   | { view: 'join'; roomId: string }
-  | { view: 'room'; roomId: string; settings: GameSettings };
+  | { view: 'room'; roomId: string; settings: GameSettings }
+  | { view: 'archive' }
+  | { view: 'review'; id: string };
 
 export function App() {
   const hotseat = useGameStore((state) => state.game);
@@ -51,10 +55,22 @@ export function App() {
         />
       );
 
+    case 'archive':
+      return (
+        <ArchiveScreen
+          onOpen={(id) => setRoute({ view: 'review', id })}
+          onBack={() => setRoute({ view: 'lobby' })}
+        />
+      );
+
+    case 'review':
+      return <ReviewScreen id={route.id} onBack={() => setRoute({ view: 'archive' })} />;
+
     case 'lobby':
       return (
         <LobbyScreen
           onCreated={(roomId, settings) => setRoute({ view: 'room', roomId, settings })}
+          onArchive={() => setRoute({ view: 'archive' })}
         />
       );
   }

@@ -27,9 +27,10 @@ const COLORS = [
 
 export interface LobbyScreenProps {
   onCreated: (roomId: string, settings: GameSettings) => void;
+  onArchive: () => void;
 }
 
-export function LobbyScreen({ onCreated }: LobbyScreenProps) {
+export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
   const [size, setSize] = useState<9 | 13 | 19>(9);
   const [handicap, setHandicap] = useState(0);
   const [creatorColor, setCreatorColor] = useState<GameSettings['creatorColor']>('random');
@@ -146,6 +147,9 @@ export function LobbyScreen({ onCreated }: LobbyScreenProps) {
             onClick={() => startHotseat({ size, handicap, komi: settings.komi })}
           >
             На одном устройстве
+          </Button>
+          <Button size="m" mode="plain" stretched onClick={onArchive}>
+            Мои партии
           </Button>
         </div>
       </List>
