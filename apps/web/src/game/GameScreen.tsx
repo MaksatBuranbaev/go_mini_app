@@ -22,6 +22,7 @@ export function GameScreen() {
     aim,
     clearAim,
     pass,
+    undo,
     resign,
     toggleDead,
     acceptScore,
@@ -133,9 +134,21 @@ export function GameScreen() {
                 {main.text}
               </Button>
             )}
-            <Button size="l" mode="outline" stretched onClick={() => void doResign()}>
-              Сдаться
-            </Button>
+            <div className="actions-row">
+              {/* За одним устройством спрашивать некого: ход снимается сразу. */}
+              <Button
+                size="m"
+                mode="outline"
+                stretched
+                disabled={record.length === 0}
+                onClick={undo}
+              >
+                Отменить ход
+              </Button>
+              <Button size="m" mode="outline" stretched onClick={() => void doResign()}>
+                Сдаться
+              </Button>
+            </div>
           </>
         )}
 

@@ -128,6 +128,31 @@ export function afterMove(
   return writeSide({ ...clock, lastMoveAt: now }, color, { ms: 0, periods });
 }
 
+/**
+ * Откат хода.
+ *
+ * Потраченное время не возвращается — взять его неоткуда, часы шли на самом
+ * деле. А вот добавку Фишера снимаем: иначе отмена собственного хода была бы
+ * способом копить время. Периоды бёёми, сгоревшие на отменённом ходу, тоже
+ * остаются сгоревшими.
+ *
+ * Часы после отката снова идут за тем, кто ходил: ход снова его.
+ */
+export function rewindMove(
+  clock: ClockState,
+  color: SeatColor,
+  time: TimeControl,
+  now: number,
+): ClockState {
+  if (time.type !== 'fischer') return { ...clock, lastMoveAt: now };
+
+  const side = readSide(clock, color);
+  return writeSide({ ...clock, lastMoveAt: now }, color, {
+    ms: Math.max(0, side.ms - time.incrementMs),
+    periods: side.periods,
+  });
+}
+
 /** Часы останавливаются: подсчёт, сдача, просрочка. */
 export function stop(clock: ClockState): ClockState {
   return { ...clock, lastMoveAt: null };

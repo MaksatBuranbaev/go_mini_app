@@ -25,6 +25,7 @@ import {
   type Seat,
   type SeatColor,
   type ServerMessage,
+  type UndoRequest,
   type WsErrorCode,
 } from '@go/protocol';
 import { DurableObject } from 'cloudflare:workers';
@@ -36,6 +37,7 @@ import {
   initialClock,
   isExpired,
   resume as resumeClock,
+  rewindMove,
   stop as stopClock,
   type ClockState,
 } from './clock.js';
@@ -257,6 +259,12 @@ export class Room extends DurableObject<Env> {
         return this.onScoringAccept(ws);
       case 'scoring:resume':
         return this.onScoringResume(ws);
+      case 'undo:request':
+        return this.onUndoRequest(ws);
+      case 'undo:answer':
+        return this.onUndoAnswer(ws, parsed.data.accept);
+      case 'undo:cancel':
+        return this.onUndoCancel(ws);
     }
   }
 
@@ -308,6 +316,7 @@ export class Room extends DurableObject<Env> {
         result: await this.result(),
         clock: await this.clockMessage(),
         scoring: await this.scoring(),
+        undo: await this.undo(),
       });
     } else {
       this.send(ws, await this.stateFor(ws));
@@ -387,6 +396,9 @@ export class Room extends DurableObject<Env> {
       clock: toClockMessage(scoringNow ? stopClock(clock) : clock),
     });
 
+    // Пока соперник думал над ответом, ход сменился — просьба протухла.
+    await this.clearUndo();
+
     if (scoringNow) {
       await this.enterScoring(next);
       return;
@@ -411,6 +423,98 @@ export class Room extends DurableObject<Env> {
     this.ctx.waitUntil(
       notifyTurn(this.env, { userId: seat.userId, roomId: meta.roomId, opponentName }),
     );
+  }
+
+  // --- отмена хода ---
+
+  /**
+   * Просьба вернуть свой последний ход. Чужой ход отменить нельзя — иначе
+   * просьба превращалась бы в способ отобрать у соперника сделанный ход.
+   */
+  private async onUndoRequest(ws: WebSocket): Promise<void> {
+    const info = seatedOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы наблюдаете за партией');
+    if ((await this.status()) !== 'playing') {
+      return this.fail(ws, 'not-playing', 'сейчас не игра');
+    }
+
+    const seq = await this.currentSeq();
+    const last = seq > 0 ? (await this.movesBetween(seq, seq))[0] : undefined;
+    if (!last || last.color !== info.color) {
+      return this.fail(ws, 'nothing-to-undo', 'отменить можно только свой последний ход');
+    }
+
+    const request: UndoRequest = { by: info.color, seq };
+    await this.ctx.storage.put('undo', request);
+    this.broadcast({ type: 'undo', undo: request, declined: false });
+  }
+
+  private async onUndoAnswer(ws: WebSocket, accept: boolean): Promise<void> {
+    const info = seatedOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы наблюдаете за партией');
+
+    const request = await this.undo();
+    // Отвечает соперник просившего: своя же просьба снимается `undo:cancel`.
+    if (!request || request.by === info.color) return;
+
+    if (!accept) {
+      await this.ctx.storage.delete('undo');
+      this.broadcast({ type: 'undo', undo: null, declined: true });
+      return;
+    }
+
+    await this.applyUndo(request);
+  }
+
+  private async onUndoCancel(ws: WebSocket): Promise<void> {
+    const info = seatedOf(ws);
+    if (!info) return;
+
+    const request = await this.undo();
+    if (!request || request.by !== info.color) return;
+
+    await this.clearUndo();
+  }
+
+  /**
+   * Сам откат. Ход удаляется из записи, номер откатывается назад, кэш и
+   * снапшот сбрасываются — и всем уходит полный снапшот: дельтой уменьшение
+   * записи не выразить.
+   */
+  private async applyUndo(request: UndoRequest): Promise<void> {
+    const seq = await this.currentSeq();
+    // Ход успел смениться между просьбой и согласием — откатывать нечего.
+    if (seq !== request.seq || (await this.status()) !== 'playing') {
+      await this.clearUndo();
+      return;
+    }
+
+    const settings = (await this.meta()).settings;
+    const clock = rewindMove(await this.clockState(), request.by, settings.time, Date.now());
+
+    await this.ctx.storage.delete(moveKey(seq));
+    await this.ctx.storage.delete('undo');
+    await this.ctx.storage.put({ seq: seq - 1, clock });
+
+    // Снапшот, снятый на отменённом ходу, сходится сам с собой по хешу и
+    // потому пережил бы проверку: после нового хода с тем же номером комната
+    // подняла бы из него позицию из другой партии.
+    const snapshot = await this.ctx.storage.get<Snapshot>('snapshot');
+    if (snapshot && snapshot.seq >= seq) await this.ctx.storage.delete('snapshot');
+
+    this.cache = null;
+    const game = await this.loadGame();
+    await this.armAlarm(clock, seatOf(game.toPlay), settings);
+
+    for (const socket of this.ctx.getWebSockets()) {
+      this.send(socket, await this.stateFor(socket));
+    }
+  }
+
+  private async clearUndo(): Promise<void> {
+    if (!(await this.undo())) return;
+    await this.ctx.storage.delete('undo');
+    this.broadcast({ type: 'undo', undo: null, declined: false });
   }
 
   private async onResign(ws: WebSocket): Promise<void> {
@@ -519,6 +623,7 @@ export class Room extends DurableObject<Env> {
     result: string,
     score: { black: number; white: number } | null,
   ): Promise<void> {
+    await this.ctx.storage.delete('undo');
     await this.ctx.storage.put({
       status: 'finished' satisfies RoomStatus,
       result,
@@ -622,6 +727,7 @@ export class Room extends DurableObject<Env> {
       result: await this.result(),
       clock: await this.clockMessage(),
       scoring: await this.scoring(),
+      undo: await this.undo(),
     };
   }
 
@@ -690,6 +796,10 @@ export class Room extends DurableObject<Env> {
 
   private async scoring(): Promise<Scoring | null> {
     return (await this.ctx.storage.get<Scoring>('scoring')) ?? null;
+  }
+
+  private async undo(): Promise<UndoRequest | null> {
+    return (await this.ctx.storage.get<UndoRequest>('undo')) ?? null;
   }
 
   private async clockState(): Promise<ClockState> {

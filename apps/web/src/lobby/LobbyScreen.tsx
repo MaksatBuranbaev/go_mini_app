@@ -196,7 +196,6 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
           >
             Звук
           </Cell>
-          <Cell subtitle="Позиционный суперко">Ко</Cell>
         </Section>
 
         {error && (

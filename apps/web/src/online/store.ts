@@ -18,6 +18,7 @@ import {
   type Scoring,
   type Seat,
   type SeatColor,
+  type UndoRequest,
 } from '@go/protocol';
 import ReconnectingWebSocket from 'partysocket/ws';
 import { create } from 'zustand';
@@ -68,6 +69,8 @@ interface OnlineStore {
   awaiting: number | null;
   rejected: number | null;
   notice: string | null;
+  /** Висящая просьба вернуть ход — своя или соперника. */
+  undo: UndoRequest | null;
 
   connect: (roomId: string) => void;
   leave: () => void;
@@ -79,6 +82,9 @@ interface OnlineStore {
   toggleDead: (point: number) => void;
   acceptScore: () => void;
   resumeGame: () => void;
+  requestUndo: () => void;
+  answerUndo: (accept: boolean) => void;
+  cancelUndo: () => void;
   /** Ручная попытка переподключиться — кнопка на экране разрыва. */
   retry: () => void;
 }
@@ -152,6 +158,7 @@ const IDLE = {
   awaiting: null,
   rejected: null,
   notice: null,
+  undo: null as UndoRequest | null,
 };
 
 export const useOnlineStore = create<OnlineStore>((set, get) => ({
@@ -285,6 +292,19 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   acceptScore: () => sendMessage({ type: 'scoring:accept' }),
 
   resumeGame: () => sendMessage({ type: 'scoring:resume' }),
+
+  // Отмена — просьба к сопернику: комната откатит партию только с его
+  // согласия и пришлёт полное состояние. Локально не меняем ничего.
+  requestUndo: () => {
+    const { status, yourColor, record, awaiting } = get();
+    if (status !== 'playing' || !yourColor || awaiting !== null) return;
+    if (seatOf(record.at(-1)?.color ?? BLACK) !== yourColor || record.length === 0) return;
+    sendMessage({ type: 'undo:request' });
+  },
+
+  answerUndo: (accept) => sendMessage({ type: 'undo:answer', accept }),
+
+  cancelUndo: () => sendMessage({ type: 'undo:cancel' }),
 }));
 
 type Setter = (partial: Partial<OnlineStore>) => void;
@@ -327,6 +347,7 @@ function handleServerMessage(
         pending: null,
         awaiting: null,
         rejected: null,
+        undo: message.undo,
         ...clockPatch(message.clock),
       });
       return;
@@ -341,6 +362,7 @@ function handleServerMessage(
         yourColor: message.yourColor,
         result: message.result,
         scoring: message.scoring,
+        undo: message.undo,
         ...clockPatch(message.clock),
       });
       for (const move of message.moves) applyMove(move, set, get);
@@ -367,6 +389,13 @@ function handleServerMessage(
       set({ status: message.status, scoring: message.scoring, pending: null, rejected: null });
       return;
 
+    case 'undo':
+      set({
+        undo: message.undo,
+        notice: message.declined ? 'Соперник не отдал ход обратно' : null,
+      });
+      return;
+
     case 'over':
       set({
         status: 'finished',
@@ -375,6 +404,7 @@ function handleServerMessage(
         score: message.score,
         pending: null,
         awaiting: null,
+        undo: null,
       });
       return;
 

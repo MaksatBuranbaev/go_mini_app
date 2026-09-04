@@ -101,6 +101,17 @@ export function RoomScreen({ roomId, settings, expected, onLeave }: RoomScreenPr
     store.yourColor !== null &&
     seatOf(store.game.toPlay) === store.yourColor;
 
+  // Отменить можно только свой последний ход и только пока он последний.
+  // Неподтверждённый ход не в счёт: комната его ещё не видела.
+  const canUndo =
+    !watching &&
+    store.status === 'playing' &&
+    store.yourColor !== null &&
+    store.awaiting === null &&
+    store.undo === null &&
+    store.record.length > 0 &&
+    seatOf(store.record[store.record.length - 1]!.color) === store.yourColor;
+
   const accepted = store.scoring?.acceptedBy ?? [];
   const iAccepted = store.yourColor !== null && accepted.includes(store.yourColor);
 
@@ -194,20 +205,54 @@ export function RoomScreen({ roomId, settings, expected, onLeave }: RoomScreenPr
         )}
 
         {!watching && store.status === 'playing' && (
-          <div className="actions-row">
-            <Button
-              size="m"
-              mode="outline"
-              stretched
-              disabled={!myTurn}
-              onClick={() => void doPass()}
-            >
-              Пас
-            </Button>
-            <Button size="m" mode="outline" stretched onClick={() => void doResign()}>
-              Сдаться
-            </Button>
-          </div>
+          <>
+            {store.undo && (
+              <div className="request">
+                <span className="request-text">
+                  {store.undo.by === store.yourColor
+                    ? 'Ждём ответа соперника'
+                    : 'Соперник просит отменить ход'}
+                </span>
+                {store.undo.by === store.yourColor ? (
+                  <Button size="s" mode="plain" onClick={store.cancelUndo}>
+                    Не надо
+                  </Button>
+                ) : (
+                  <>
+                    <Button size="s" onClick={() => store.answerUndo(true)}>
+                      Разрешить
+                    </Button>
+                    <Button size="s" mode="outline" onClick={() => store.answerUndo(false)}>
+                      Отказать
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div className="actions-row">
+              {/* Пас и отмена не спорят за место: пасуют в свой ход,
+                  отменяют — в чужой, сразу после собственного хода. */}
+              {canUndo ? (
+                <Button size="m" mode="outline" stretched onClick={store.requestUndo}>
+                  Отменить ход
+                </Button>
+              ) : (
+                <Button
+                  size="m"
+                  mode="outline"
+                  stretched
+                  disabled={!myTurn}
+                  onClick={() => void doPass()}
+                >
+                  Пас
+                </Button>
+              )}
+              <Button size="m" mode="outline" stretched onClick={() => void doResign()}>
+                Сдаться
+              </Button>
+            </div>
+          </>
         )}
 
         {!watching && store.status === 'scoring' && (

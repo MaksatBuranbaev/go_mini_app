@@ -6,7 +6,7 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 cd "$HERE"
 
 failed=0
-for test in protocol endgame rules sgf watch finish sync skew archive watch-ui polish lobby; do
+for test in protocol endgame rules sgf watch undo finish sync skew archive watch-ui polish lobby; do
   echo
   echo "=== $test ==="
   if ! node "$test.mjs"; then

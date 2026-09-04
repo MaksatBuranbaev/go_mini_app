@@ -27,6 +27,11 @@ export function captureFeedback(): void {
   captureSound();
 }
 
+/** Ход вернулся назад: то же по силе, что и постановка камня, но без стука. */
+export function undoFeedback(): void {
+  if (hapticFeedback.impactOccurred.isAvailable()) hapticFeedback.impactOccurred('light');
+}
+
 /** Ход отвергнут правилами. */
 export function rejectFeedback(): void {
   if (hapticFeedback.notificationOccurred.isAvailable()) {

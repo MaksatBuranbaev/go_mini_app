@@ -7,6 +7,7 @@ import {
   groupAt,
   guessDeadStones,
   play,
+  replay,
   resumePlay,
   score as scoreBy,
   type GameState,
@@ -20,6 +21,7 @@ import {
   aimFeedback,
   captureFeedback,
   passFeedback,
+  undoFeedback,
   rejectFeedback,
   stoneFeedback,
 } from '../telegram/feedback.js';
@@ -62,6 +64,8 @@ interface GameStore {
   clearAim: () => void;
   confirmMove: () => void;
   pass: () => void;
+  /** Вернуть последний ход. Спрашивать некого: за доской оба игрока. */
+  undo: () => void;
   resign: () => void;
   toggleDead: (point: number) => void;
   acceptScore: () => void;
@@ -175,6 +179,38 @@ export const useGameStore = create<GameStore>((set, get) => ({
       illegal: null,
       dead,
       score: scoreBy(next, dead, get().settings?.rules),
+    });
+  },
+
+  /**
+   * Отмена хода. За одним устройством спрашивать разрешения не у кого, поэтому
+   * ход просто снимается — а позиция пересобирается прогоном записи с начала:
+   * держать стек состояний ради одной кнопки дороже, чем переиграть партию,
+   * которая целиком лежит рядом.
+   */
+  undo: () => {
+    const { game, record, settings } = get();
+    if (!game || !settings || game.phase === 'finished' || record.length === 0) return;
+
+    const moves = record.slice(0, -1);
+    const replayed = replay(
+      { size: settings.size, komi: settings.komi, handicap: settings.handicap },
+      moves.map((entry) => entry.move),
+    );
+    if (!replayed.ok) return;
+
+    undoFeedback();
+    const last = moves.at(-1)?.move;
+    set({
+      game: replayed.value,
+      record: moves,
+      lastMove:
+        last && last.type === 'play' ? last.y * settings.size + last.x : null,
+      pending: null,
+      rejected: null,
+      illegal: null,
+      dead: new Set<number>(),
+      score: null,
     });
   },
 

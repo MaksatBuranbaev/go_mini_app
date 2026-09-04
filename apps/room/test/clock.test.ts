@@ -1,6 +1,15 @@
 import type { TimeControl } from '@go/protocol';
 import { describe, expect, it } from 'vitest';
-import { afterMove, deadline, initialClock, isExpired, remainingMs, resume, stop } from '../src/clock.js';
+import {
+  afterMove,
+  deadline,
+  initialClock,
+  isExpired,
+  remainingMs,
+  resume,
+  rewindMove,
+  stop,
+} from '../src/clock.js';
 
 const FISCHER: TimeControl = { type: 'fischer', mainMs: 60_000, incrementMs: 5_000 };
 const BYOYOMI: TimeControl = { type: 'byoyomi', mainMs: 30_000, periodMs: 10_000, periods: 3 };
@@ -120,5 +129,39 @@ describe('остановка и возврат', () => {
 
     expect(back.blackMs).toBe(60_000);
     expect(back.lastMoveAt).toBe(500_000);
+  });
+});
+
+describe('откат хода', () => {
+  it('снимает добавку Фишера: отмена не должна копить время', () => {
+    const running = { ...initialClock(FISCHER), lastMoveAt: 1_000 };
+    const after = afterMove(running, 'black', FISCHER, 9_000);
+
+    const back = rewindMove(after, 'black', FISCHER, 20_000);
+
+    // Восемь секунд, потраченные на ход, не возвращаются — только добавка.
+    expect(back.blackMs).toBe(52_000);
+    expect(back.whiteMs).toBe(60_000);
+  });
+
+  it('не уводит остаток в минус', () => {
+    const almost = { ...initialClock(FISCHER), blackMs: 2_000, lastMoveAt: 0 };
+
+    expect(rewindMove(almost, 'black', FISCHER, 1_000).blackMs).toBe(0);
+  });
+
+  it('в бёёми возвращать нечего: сгоревшие периоды остаются сгоревшими', () => {
+    const burned = { ...initialClock(BYOYOMI), blackMs: 0, blackPeriods: 1, lastMoveAt: 0 };
+
+    const back = rewindMove(burned, 'black', BYOYOMI, 5_000);
+
+    expect(back.blackMs).toBe(0);
+    expect(back.blackPeriods).toBe(1);
+  });
+
+  it('часы снова идут за тем, кто ходил: ход опять его', () => {
+    const stopped = { ...initialClock(NONE), lastMoveAt: 1_000 };
+
+    expect(rewindMove(stopped, 'white', NONE, 42_000).lastMoveAt).toBe(42_000);
   });
 });

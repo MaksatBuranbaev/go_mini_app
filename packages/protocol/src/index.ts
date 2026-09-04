@@ -173,6 +173,17 @@ export const ClockSchema = z.object({
 
 export type Clock = z.infer<typeof ClockSchema>;
 
+/**
+ * Висящий запрос на отмену. `seq` — номер хода, о котором просят: если он
+ * успел смениться (соперник походил, пока думал), запрос протух и снимается.
+ */
+export const UndoRequestSchema = z.object({
+  by: ColorSchema,
+  seq: z.number().int().positive(),
+});
+
+export type UndoRequest = z.infer<typeof UndoRequestSchema>;
+
 /** Разметка мёртвых камней и то, кто из игроков её уже принял. */
 export const ScoringSchema = z.object({
   dead: z.array(z.number().int().nonnegative()),
@@ -219,6 +230,18 @@ export const ClientScoringToggleSchema = z.object({
 export const ClientScoringAcceptSchema = z.object({ type: z.literal('scoring:accept') });
 export const ClientScoringResumeSchema = z.object({ type: z.literal('scoring:resume') });
 
+/**
+ * Отмена хода — просьба, а не право: комната откатывает партию только после
+ * согласия соперника. Просить можно лишь о своём последнем ходе, поэтому
+ * номер отменяемого хода комната берёт у себя, а не из запроса.
+ */
+export const ClientUndoRequestSchema = z.object({ type: z.literal('undo:request') });
+export const ClientUndoAnswerSchema = z.object({
+  type: z.literal('undo:answer'),
+  accept: z.boolean(),
+});
+export const ClientUndoCancelSchema = z.object({ type: z.literal('undo:cancel') });
+
 export const ClientMessageSchema = z.discriminatedUnion('type', [
   ClientJoinSchema,
   ClientMoveSchema,
@@ -227,6 +250,9 @@ export const ClientMessageSchema = z.discriminatedUnion('type', [
   ClientScoringToggleSchema,
   ClientScoringAcceptSchema,
   ClientScoringResumeSchema,
+  ClientUndoRequestSchema,
+  ClientUndoAnswerSchema,
+  ClientUndoCancelSchema,
 ]);
 
 export type ClientMessage = z.infer<typeof ClientMessageSchema>;
@@ -248,6 +274,11 @@ export const ServerStateSchema = z.object({
   result: z.string().nullable(),
   clock: ClockSchema,
   scoring: ScoringSchema.nullable(),
+  /**
+   * `default` здесь не косметика: снапшот должен читаться клиентом, собранным
+   * до появления отмены, и наоборот — клиентом рядом со старой комнатой.
+   */
+  undo: UndoRequestSchema.nullable().default(null),
 });
 
 export type ServerState = z.infer<typeof ServerStateSchema>;
@@ -264,6 +295,7 @@ export const ServerSyncSchema = z.object({
   result: z.string().nullable(),
   clock: ClockSchema,
   scoring: ScoringSchema.nullable(),
+  undo: UndoRequestSchema.nullable().default(null),
 });
 
 export const ServerMoveSchema = z.object({
@@ -303,6 +335,17 @@ export const ServerOverSchema = z.object({
     .nullable(),
 });
 
+/**
+ * Запрос на отмену появился, снят или отклонён. Сам откат приезжает полным
+ * снапшотом: дельтой его не выразить — ходов становится меньше, а не больше.
+ */
+export const ServerUndoSchema = z.object({
+  type: z.literal('undo'),
+  undo: UndoRequestSchema.nullable(),
+  /** Запрос сняли отказом, а не согласием: об этом просившему нужно сказать. */
+  declined: z.boolean().default(false),
+});
+
 export const ServerPresenceSchema = z.object({
   type: z.literal('presence'),
   online: z.array(ColorSchema),
@@ -318,6 +361,7 @@ export const WsErrorCodeSchema = z.enum([
   'not-playing',
   'illegal-move',
   'not-scoring',
+  'nothing-to-undo',
 ]);
 
 export type WsErrorCode = z.infer<typeof WsErrorCodeSchema>;
@@ -335,6 +379,7 @@ export const ServerMessageSchema = z.discriminatedUnion('type', [
   ServerClockSchema,
   ServerScoringSchema,
   ServerOverSchema,
+  ServerUndoSchema,
   ServerPresenceSchema,
   ServerErrorSchema,
 ]);

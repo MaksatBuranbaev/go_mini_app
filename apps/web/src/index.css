@@ -198,6 +198,25 @@ body {
   gap: 8px;
 }
 
+/* Просьба вернуть ход: строка над кнопками партии. */
+.request {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  font-size: 14px;
+  border-radius: 12px;
+  background: rgba(127, 127, 127, 0.14);
+}
+
+:root[data-theme='dark'] .request {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.request-text {
+  flex: 1;
+}
+
 /* Экраны приглашения и ожидания длиннее доски и должны прокручиваться. */
 .screen-scroll {
   overflow-y: auto;
