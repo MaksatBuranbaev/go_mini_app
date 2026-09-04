@@ -1,15 +1,10 @@
 import { areaOwners, type GameState, type ScoreResult } from '@go/engine';
-import {
-  backButton,
-  isMiniAppDark,
-  mainButton,
-  useSignal,
-} from '@telegram-apps/sdk-react';
+import { isMiniAppDark, useSignal } from '@telegram-apps/sdk-react';
 import { Button } from '@telegram-apps/telegram-ui';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { Board } from '../board/Board.js';
+import { hasNativeButtons, useBackButton, useMainButton } from '../telegram/buttons.js';
 import { confirmAction } from '../telegram/feedback.js';
-import { isMockedEnv } from '../telegram/mockEnv.js';
 import { colorName, illegalText, useGameStore } from './store.js';
 
 export function GameScreen() {
@@ -69,42 +64,14 @@ export function GameScreen() {
     return { text: 'Пас', run: doPass };
   }, [game, pending, acceptScore, confirmMove, doPass]);
 
-  useEffect(() => {
-    if (!mainButton.setParams.isAvailable()) return;
-    if (main) mainButton.setParams({ text: main.text, isVisible: true, isEnabled: true });
-    else mainButton.setParams({ isVisible: false });
-  }, [main]);
-
-  useEffect(() => {
-    if (!main || !mainButton.onClick.isAvailable()) return;
-    const handler = () => void main.run();
-    mainButton.onClick(handler);
-    return () => mainButton.offClick(handler);
-  }, [main]);
-
-  useEffect(
-    () => () => {
-      if (mainButton.setParams.isAvailable()) mainButton.setParams({ isVisible: false });
-    },
-    [],
+  useMainButton(
+    useMemo(() => (main ? { text: main.text, onClick: () => void main.run() } : null), [main]),
   );
-
-  useEffect(() => {
-    if (!backButton.show.isAvailable()) return;
-    backButton.show();
-    const handler = () => void leave();
-    backButton.onClick(handler);
-    return () => {
-      backButton.offClick(handler);
-      if (backButton.hide.isAvailable()) backButton.hide();
-    };
-  }, [leave]);
+  useBackButton(useMemo(() => () => void leave(), [leave]));
 
   if (!game) return null;
 
-  // За моком SDK рапортует, что MainButton доступна, но рисовать её некому:
-  // вне Telegram основное действие уходит в кнопку на самом экране.
-  const nativeMain = mainButton.setParams.isAvailable() && !isMockedEnv();
+  const nativeMain = hasNativeButtons();
 
   return (
     <div className="screen">

@@ -9,7 +9,6 @@ import {
   themeParams,
   viewport,
 } from '@telegram-apps/sdk-react';
-import { mockEnvIfOutsideTelegram } from './mockEnv.js';
 
 /**
  * Поднимает SDK и монтирует то, что нужно доске.
@@ -18,7 +17,6 @@ import { mockEnvIfOutsideTelegram } from './mockEnv.js';
  * различаются, и вызов неподдержанного метода — исключение, а не no-op.
  */
 export function initTelegram(): void {
-  mockEnvIfOutsideTelegram();
   initSDK();
 
   // init() сигналы initData не наполняет — их поднимает только restore.

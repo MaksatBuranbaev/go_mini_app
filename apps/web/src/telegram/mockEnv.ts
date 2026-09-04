@@ -17,6 +17,14 @@ const THEME = {
   // as const: SDK ждёт цвета типом `#${string}`, а не просто string.
 } as const;
 
+/**
+ * Тот же фальшивый токен, что в `apps/room/.dev.vars` (см. `.dev.vars.example`).
+ * Настоящий токен бота живёт только в секретах Worker'а и сюда не попадает
+ * никогда: этой веткой кода распоряжается `import.meta.env.DEV`.
+ */
+const DEV_BOT_TOKEN =
+  import.meta.env.VITE_DEV_BOT_TOKEN ?? '1234567890:TEST_TOKEN_FOR_LOCAL_DEV_ONLY';
+
 let mocked = false;
 
 /**
@@ -48,23 +56,28 @@ function insideTelegramClient(): boolean {
  * Вне Telegram launch params взять неоткуда, и SDK падает на старте.
  * В dev-сборке подменяем окружение, чтобы доску можно было открыть
  * в обычном браузере. В прод-бандл эта ветка не попадает.
+ *
+ * initData подписывается по-настоящему, локальным токеном: комната проверяет
+ * подпись без всяких послаблений, и обходного пути в ней нет — иначе такой
+ * обход рано или поздно уехал бы в прод.
  */
-export function mockEnvIfOutsideTelegram(): void {
+export async function mockEnvIfOutsideTelegram(): Promise<void> {
   if (!import.meta.env.DEV || insideTelegramClient()) return;
 
-  const initDataRaw = new URLSearchParams({
-    user: JSON.stringify({
-      id: 1,
-      first_name: 'Локальный',
-      last_name: 'Игрок',
-      username: 'local',
-      language_code: 'ru',
-      allows_write_to_pm: true,
-    }),
-    auth_date: Math.floor(Date.now() / 1000).toString(),
-    signature: 'mock-signature',
-    hash: 'mock-hash',
-  }).toString();
+  const initDataRaw = await signInitData(
+    {
+      user: JSON.stringify({
+        id: devUserId(),
+        first_name: devUserName(),
+        username: `local${devUserId()}`,
+        language_code: 'ru',
+        allows_write_to_pm: true,
+      }),
+      auth_date: Math.floor(Date.now() / 1000).toString(),
+      signature: 'mock-signature',
+    },
+    DEV_BOT_TOKEN,
+  );
 
   mockTelegramEnv({
     launchParams: new URLSearchParams({
@@ -72,6 +85,7 @@ export function mockEnvIfOutsideTelegram(): void {
       tgWebAppVersion: '8.0',
       tgWebAppPlatform: 'tdesktop',
       tgWebAppThemeParams: JSON.stringify(THEME),
+      ...startParamFromUrl(),
     }),
     // Запросы к клиенту нужно не только принять, но и ответить на них:
     // без ответа монтирование вьюпорта висит вечно, а вместе с ним и вёрстка.
@@ -97,5 +111,54 @@ export function mockEnvIfOutsideTelegram(): void {
   });
 
   mocked = true;
-  console.info('[telegram] окружение замокано: приложение открыто вне Telegram');
+  console.info('[telegram] окружение замокано, пользователь', devUserId());
+}
+
+/**
+ * Два игрока за одной машиной — это две вкладки, и Telegram-id у них обязан
+ * различаться, иначе комната посадит обоих на одно место. Задаётся `?dev_user=`.
+ */
+function devUserId(): number {
+  const raw = new URLSearchParams(window.location.search).get('dev_user');
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+}
+
+function devUserName(): string {
+  return `Игрок ${devUserId()}`;
+}
+
+/** В браузере deep link имитируется параметром `?startapp=`. */
+function startParamFromUrl(): Record<string, string> {
+  const value = new URLSearchParams(window.location.search).get('startapp');
+  return value ? { tgWebAppStartParam: value } : {};
+}
+
+/**
+ * Подпись initData по схеме Telegram: ключ выводится из токена бота,
+ * данные склеиваются отсортированными парами `key=value` через перевод строки.
+ */
+async function signInitData(params: Record<string, string>, token: string): Promise<string> {
+  const pairs = Object.entries(params).sort(([a], [b]) => (a < b ? -1 : 1));
+  const dataCheckString = pairs.map(([key, value]) => `${key}=${value}`).join('\n');
+
+  const secret = await hmac(new TextEncoder().encode('WebAppData'), token);
+  const signature = await hmac(secret, dataCheckString);
+
+  return new URLSearchParams([...pairs, ['hash', hex(signature)]]).toString();
+}
+
+async function hmac(key: BufferSource, message: string): Promise<ArrayBuffer> {
+  const imported = await crypto.subtle.importKey(
+    'raw',
+    key,
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign'],
+  );
+  return crypto.subtle.sign('HMAC', imported, new TextEncoder().encode(message));
+}
+
+function hex(buffer: ArrayBuffer): string {
+  return Array.from(new Uint8Array(buffer), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }

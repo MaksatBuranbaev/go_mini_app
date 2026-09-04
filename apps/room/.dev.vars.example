@@ -1,0 +1,6 @@
+# Скопируйте в .dev.vars (он в .gitignore) для локального wrangler dev.
+# Токен фальшивый: им же подписывает initData мок мини-аппа в dev-сборке,
+# см. DEV_BOT_TOKEN в apps/web/src/telegram/mockEnv.ts.
+# Настоящий токен бота задаётся только секретом Worker'а:
+#   pnpm --filter @go/room exec wrangler secret put BOT_TOKEN
+BOT_TOKEN=1234567890:TEST_TOKEN_FOR_LOCAL_DEV_ONLY

@@ -1,21 +1,47 @@
-import { Button, Caption, Cell, List, Section } from '@telegram-apps/telegram-ui';
+import { defaultKomi } from '@go/engine';
+import type { GameSettings } from '@go/protocol';
+import { Button, Cell, List, Section } from '@telegram-apps/telegram-ui';
 import { useState } from 'react';
-import { roomBaseUrl } from '../api/room.js';
-import { BOARD_SIZES, HANDICAPS, settingsFor, useGameStore } from '../game/store.js';
-import { useRoomStore } from '../store/room.js';
+import { createRoom } from '../api/room.js';
+import { BOARD_SIZES, HANDICAPS, useGameStore } from '../game/store.js';
 
-/**
- * Лобби фазы 2: партия идёт на одном устройстве, поэтому из настроек здесь
- * только то, что меняет саму доску. Цвет, время и приглашение появятся
- * вместе с живой комнатой.
- */
-export function LobbyScreen() {
-  const [size, setSize] = useState(9);
+const COLORS = [
+  { value: 'black', label: 'Чёрные' },
+  { value: 'white', label: 'Белые' },
+  { value: 'random', label: 'Жребий' },
+] as const;
+
+export interface LobbyScreenProps {
+  onCreated: (roomId: string, settings: GameSettings) => void;
+}
+
+export function LobbyScreen({ onCreated }: LobbyScreenProps) {
+  const [size, setSize] = useState<9 | 13 | 19>(9);
   const [handicap, setHandicap] = useState(0);
-  const start = useGameStore((state) => state.start);
-  const { roomId, status, pong } = useRoomStore();
+  const [creatorColor, setCreatorColor] = useState<GameSettings['creatorColor']>('random');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const startHotseat = useGameStore((state) => state.start);
 
-  const settings = settingsFor(size, handicap);
+  const settings: GameSettings = {
+    size,
+    handicap,
+    komi: defaultKomi(size, handicap),
+    creatorColor,
+  };
+
+  const invite = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const room = await createRoom(settings);
+      onCreated(room.roomId, room.settings);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <List>
@@ -49,27 +75,45 @@ export function LobbyScreen() {
         </div>
       </Section>
 
+      <Section header="Ваш цвет">
+        <div className="choice-row">
+          {COLORS.map((option) => (
+            <Button
+              key={option.value}
+              size="m"
+              mode={option.value === creatorColor ? 'filled' : 'outline'}
+              onClick={() => setCreatorColor(option.value)}
+            >
+              {option.label}
+            </Button>
+          ))}
+        </div>
+      </Section>
+
       <Section header="Партия">
         <Cell subtitle="Коми">{settings.komi}</Cell>
         <Cell subtitle="Правила">Китайские, позиционный суперко</Cell>
-        <Cell subtitle="Режим">Вдвоём на одном устройстве</Cell>
       </Section>
+
+      {error && (
+        <Section header="Не вышло">
+          <Cell subtitle="Комната">{error}</Cell>
+        </Section>
+      )}
 
       <div className="lobby-start">
-        <Button size="l" stretched onClick={() => start(settings)}>
-          Начать партию
+        <Button size="l" stretched loading={busy} onClick={() => void invite()}>
+          Пригласить друга
+        </Button>
+        <Button
+          size="l"
+          mode="outline"
+          stretched
+          onClick={() => startHotseat({ size, handicap, komi: settings.komi })}
+        >
+          На одном устройстве
         </Button>
       </div>
-
-      <Section header="Комната">
-        <Cell subtitle="id">
-          <span className="mono">{roomId || '—'}</span>
-        </Cell>
-        <Cell subtitle="Состояние">
-          {status === 'ok' && pong ? `отвечает, пингов: ${pong.pings}` : status}
-        </Cell>
-        <Caption className="mono lobby-room-url">{roomBaseUrl()}</Caption>
-      </Section>
     </List>
   );
 }

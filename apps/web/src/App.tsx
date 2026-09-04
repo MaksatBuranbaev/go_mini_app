@@ -1,16 +1,61 @@
-import { useEffect } from 'react';
+import type { GameSettings } from '@go/protocol';
+import { useState } from 'react';
 import { GameScreen } from './game/GameScreen.js';
 import { useGameStore } from './game/store.js';
 import { LobbyScreen } from './lobby/LobbyScreen.js';
-import { useRoomStore } from './store/room.js';
+import { JoinScreen } from './online/JoinScreen.js';
+import { RoomScreen } from './online/RoomScreen.js';
+import { restoreRoom } from './online/session.js';
+import { startParam } from './telegram/init.js';
+
+/**
+ * Экранов мало и они не вложены, так что маршрутизатор здесь — это одно
+ * состояние. Партия на одном устройстве живёт отдельным стором и перекрывает
+ * всё остальное, пока не закончится.
+ */
+type Route =
+  | { view: 'lobby' }
+  | { view: 'join'; roomId: string }
+  | { view: 'room'; roomId: string; settings: GameSettings };
 
 export function App() {
-  const game = useGameStore((state) => state.game);
-  const ping = useRoomStore((state) => state.ping);
+  const hotseat = useGameStore((state) => state.game);
+  const [route, setRoute] = useState<Route>(() => {
+    // Открыли по ссылке-приглашению — сразу показываем, во что зовут.
+    const param = startParam();
+    if (param) return { view: 'join', roomId: param };
 
-  useEffect(() => {
-    void ping();
-  }, [ping]);
+    // Иначе возвращаемся в комнату, из которой нас вынесло перезагрузкой.
+    const stored = restoreRoom();
+    return stored ? { view: 'room', ...stored } : { view: 'lobby' };
+  });
 
-  return game ? <GameScreen /> : <LobbyScreen />;
+  if (hotseat) return <GameScreen />;
+
+  switch (route.view) {
+    case 'join':
+      return (
+        <JoinScreen
+          roomId={route.roomId}
+          onAccept={(settings) => setRoute({ view: 'room', roomId: route.roomId, settings })}
+          onCancel={() => setRoute({ view: 'lobby' })}
+        />
+      );
+
+    case 'room':
+      return (
+        <RoomScreen
+          roomId={route.roomId}
+          settings={route.settings}
+          onLeave={() => setRoute({ view: 'lobby' })}
+        />
+      );
+
+    case 'lobby':
+      return (
+        <LobbyScreen
+          onCreated={(roomId, settings) => setRoute({ view: 'room', roomId, settings })}
+        />
+      );
+  }
 }

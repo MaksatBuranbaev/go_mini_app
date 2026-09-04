@@ -10,7 +10,9 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
-    "@go/protocol": "workspace:*"
+    "@go/engine": "workspace:*",
+    "@go/protocol": "workspace:*",
+    "@telegram-apps/init-data-node": "^2.0.9"
   },
   "devDependencies": {
     "typescript": "^5.7.2",
