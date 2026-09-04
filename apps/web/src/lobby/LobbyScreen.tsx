@@ -4,6 +4,7 @@ import { Button, Cell, List, Section } from '@telegram-apps/telegram-ui';
 import { useState } from 'react';
 import { createRoom } from '../api/room.js';
 import { BOARD_SIZES, HANDICAPS, useGameStore } from '../game/store.js';
+import { isSoundEnabled, setSoundEnabled } from '../telegram/sound.js';
 
 /**
  * Готовые контроли времени вместо полного редактора: в лобби для друзей
@@ -35,6 +36,7 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
   const [handicap, setHandicap] = useState(0);
   const [creatorColor, setCreatorColor] = useState<GameSettings['creatorColor']>('random');
   const [timeIndex, setTimeIndex] = useState(0);
+  const [sound, setSound] = useState(isSoundEnabled);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startHotseat = useGameStore((state) => state.start);
@@ -128,6 +130,23 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
         <Section header="Партия">
           <Cell subtitle="Коми">{settings.komi}</Cell>
           <Cell subtitle="Правила">Китайские, позиционный суперко</Cell>
+          <Cell
+            subtitle="Стук камня о доску"
+            after={
+              <Button
+                size="s"
+                mode={sound ? 'filled' : 'outline'}
+                onClick={() => {
+                  setSoundEnabled(!sound);
+                  setSound(!sound);
+                }}
+              >
+                {sound ? 'вкл' : 'выкл'}
+              </Button>
+            }
+          >
+            Звук
+          </Cell>
         </Section>
 
         {error && (

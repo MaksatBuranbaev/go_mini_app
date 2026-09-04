@@ -1,5 +1,6 @@
 import { hapticFeedback, popup } from '@telegram-apps/sdk-react';
 import { isMockedEnv } from './mockEnv.js';
+import { captureSound, stoneSound } from './sound.js';
 
 /** Наметили точку: самый лёгкий отклик, он повторяется чаще всех. */
 export function aimFeedback(): void {
@@ -9,11 +10,13 @@ export function aimFeedback(): void {
 /** Камень встал на доску. */
 export function stoneFeedback(): void {
   if (hapticFeedback.impactOccurred.isAvailable()) hapticFeedback.impactOccurred('medium');
+  stoneSound();
 }
 
 /** Взяли группу — отклик заметно сильнее обычного хода. */
 export function captureFeedback(): void {
   if (hapticFeedback.impactOccurred.isAvailable()) hapticFeedback.impactOccurred('heavy');
+  captureSound();
 }
 
 /** Ход отвергнут правилами. */

@@ -27,6 +27,14 @@ export function themeFor(dark: boolean): BoardTheme {
     : { wood: '#e5b96b', line: '#4a3418', star: '#4a3418', accent: '#2f7fd4', illegal: '#c8362a' };
 }
 
+/** Снятый камень: живёт только в анимации, на доске его уже нет. */
+export interface Capture {
+  point: number;
+  color: Color;
+  /** 0 — только что сняли, 1 — растаял. */
+  progress: number;
+}
+
 export interface BoardScene {
   layout: BoardLayout;
   view: View;
@@ -41,6 +49,8 @@ export interface BoardScene {
   dead: ReadonlySet<number>;
   /** Карта владельцев из движка. Заполнена только в фазе подсчёта. */
   owners: Uint8Array | null;
+  /** Камни, снятые последним ходом: доигрывают исчезновение. */
+  captures?: Capture[];
 }
 
 export function drawBoard(ctx: CanvasRenderingContext2D, scene: BoardScene): void {
@@ -52,6 +62,7 @@ export function drawBoard(ctx: CanvasRenderingContext2D, scene: BoardScene): voi
   drawStars(ctx, scene, cell);
   if (scene.owners) drawTerritory(ctx, scene, cell);
   drawStones(ctx, scene, cell);
+  drawCaptures(ctx, scene, cell);
   drawLastMove(ctx, scene, cell);
   drawPending(ctx, scene, cell);
 }
@@ -118,6 +129,22 @@ function drawTerritory(ctx: CanvasRenderingContext2D, scene: BoardScene, cell: n
     const y = pointY(scene, point);
     ctx.fillStyle = owner === BLACK ? 'rgba(10,10,10,0.75)' : 'rgba(250,250,245,0.85)';
     ctx.fillRect(x - side / 2, y - side / 2, side, side);
+  }
+}
+
+/**
+ * Снятые камни. Захват — единственное, что на доске меняется не там, куда
+ * смотрит палец: без анимации на 19×19 непонятно, что вообще произошло.
+ */
+function drawCaptures(ctx: CanvasRenderingContext2D, scene: BoardScene, cell: number): void {
+  for (const capture of scene.captures ?? []) {
+    const eased = capture.progress * capture.progress;
+    const x = pointX(scene, capture.point);
+    const y = pointY(scene, capture.point) - cell * 0.3 * eased;
+
+    ctx.globalAlpha = Math.max(0, 1 - eased);
+    paintStone(ctx, x, y, cell * 0.47 * (1 - 0.3 * eased), capture.color);
+    ctx.globalAlpha = 1;
   }
 }
 

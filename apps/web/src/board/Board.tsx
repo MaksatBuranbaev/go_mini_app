@@ -8,12 +8,22 @@ import {
   type BoardLayout,
   type View,
 } from './geometry.js';
-import { drawBoard, themeFor, type BoardScene } from './render.js';
+import { drawBoard, themeFor, type BoardScene, type Capture } from './render.js';
 
 /** Сдвиг в CSS-пикселях, после которого тап превращается в панораму. */
 const TAP_SLOP = 8;
 
-type SceneInput = Omit<BoardScene, 'layout' | 'view' | 'theme'>;
+/** Сколько живёт исчезновение снятого камня. */
+const CAPTURE_MS = 260;
+
+type SceneInput = Omit<BoardScene, 'layout' | 'view' | 'theme' | 'captures'>;
+
+/** Снятый камень с моментом снятия: прогресс считается на каждом кадре. */
+interface FadingStone {
+  point: number;
+  color: Capture['color'];
+  at: number;
+}
 
 export interface BoardProps extends SceneInput {
   size: number;
@@ -37,6 +47,9 @@ export function Board(props: BoardProps) {
   const viewRef = useRef<View>(FIT_VIEW);
   const sceneRef = useRef<SceneInput>(props);
   const frameRef = useRef(0);
+  const boardRef = useRef<Uint8Array | null>(null);
+  const fadingRef = useRef<FadingStone[]>([]);
+  const paintRef = useRef<() => void>(() => {});
 
   const pointersRef = useRef(new Map<number, Pointer>());
   const gestureRef = useRef<{
@@ -63,19 +76,48 @@ export function Board(props: BoardProps) {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const now = performance.now();
+    fadingRef.current = fadingRef.current.filter((stone) => now - stone.at < CAPTURE_MS);
+    const captures: Capture[] = fadingRef.current.map((stone) => ({
+      point: stone.point,
+      color: stone.color,
+      progress: (now - stone.at) / CAPTURE_MS,
+    }));
+
     drawBoard(ctx, {
       ...sceneRef.current,
+      captures,
       layout,
       view: viewRef.current,
       theme: themeFor(dark),
     });
+
+    // Пока камни тают, кадры заказываем сами: пропсы за это время не меняются.
+    if (fadingRef.current.length > 0) {
+      frameRef.current = requestAnimationFrame(() => paintRef.current());
+    }
   }, [dark]);
+
+  paintRef.current = paint;
 
   const schedule = useCallback(() => {
     if (frameRef.current === 0) frameRef.current = requestAnimationFrame(paint);
   }, [paint]);
 
   useEffect(() => {
+    // Пропавшие с доски камни — это захват. Сравниваем с прошлым кадром:
+    // сам ход про снятые камни ничего не говорит, их считает движок.
+    const previous = boardRef.current;
+    if (previous && previous.length === props.board.length) {
+      for (let point = 0; point < props.board.length; point++) {
+        const was = previous[point]!;
+        if (was !== 0 && props.board[point] === 0) {
+          fadingRef.current.push({ point, color: was as Capture['color'], at: performance.now() });
+        }
+      }
+    }
+    boardRef.current = Uint8Array.from(props.board);
+
     sceneRef.current = props;
     schedule();
   });
