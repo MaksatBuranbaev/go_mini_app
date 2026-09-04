@@ -125,6 +125,7 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
         {store.clock && (
           <Clocks
             clock={store.clock}
+            offset={store.clockOffset}
             time={active.time}
             running={running}
             yourColor={store.yourColor}

@@ -7,6 +7,8 @@ export interface ClocksProps {
   /** Чьи часы сейчас идут. `null` — часы стоят. */
   running: SeatColor | null;
   yourColor: SeatColor | null;
+  /** Насколько часы устройства убежали от серверных, в миллисекундах. */
+  offset: number;
 }
 
 /**
@@ -16,7 +18,7 @@ export interface ClocksProps {
  * досчитывает сам — поэтому по сети не гоняется ни одного лишнего пакета
  * на тиканье секунд. Расхождение системных часов снимается через `serverNow`.
  */
-export function Clocks({ clock, time, running, yourColor }: ClocksProps) {
+export function Clocks({ clock, time, running, yourColor, offset }: ClocksProps) {
   const tick = useSecondTick(running !== null);
 
   if (time.type === 'none') return null;
@@ -35,7 +37,7 @@ export function Clocks({ clock, time, running, yourColor }: ClocksProps) {
             .join(' ')}
         >
           <span className={`clock-dot clock-dot-${color}`} />
-          {formatSide(clock, time, color, running === color ? tick : null)}
+          {formatSide(clock, time, color, running === color ? tick - offset : null)}
         </div>
       ))}
     </div>
@@ -48,8 +50,15 @@ function useSecondTick(active: boolean): number {
 
   useEffect(() => {
     if (!active) return;
-    const id = setInterval(() => setNow(Date.now()), 500);
-    return () => clearInterval(id);
+    const beat = () => setNow(Date.now());
+    const id = setInterval(beat, 500);
+    // Свёрнутому мини-аппу браузер режет таймеры вплоть до раза в минуту:
+    // при возврате пересчитываем сразу, иначе игрок видит замершие показания.
+    document.addEventListener('visibilitychange', beat);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', beat);
+    };
   }, [active]);
 
   return now;
@@ -59,7 +68,8 @@ function formatSide(
   clock: Clock,
   time: TimeControl,
   color: SeatColor,
-  now: number | null,
+  /** Серверное «сейчас», уже сдвинутое на расхождение часов. `null` — часы стоят. */
+  serverNow: number | null,
 ): string {
   if (time.type === 'none') return '';
 
@@ -67,7 +77,8 @@ function formatSide(
   const periods = color === 'black' ? clock.blackPeriods : clock.whitePeriods;
 
   // Убегает время только у того, чей сейчас ход.
-  const elapsed = now !== null && clock.lastMoveAt !== null ? Math.max(0, now - clock.lastMoveAt) : 0;
+  const elapsed =
+    serverNow !== null && clock.lastMoveAt !== null ? Math.max(0, serverNow - clock.lastMoveAt) : 0;
 
   if (time.type === 'fischer') return clockText(Math.max(0, stored - elapsed));
 

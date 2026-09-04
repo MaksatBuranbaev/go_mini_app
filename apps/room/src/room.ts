@@ -574,6 +574,9 @@ export class Room extends DurableObject<Env> {
       const clock = resumeClock(await this.clockState(), Date.now());
       await this.ctx.storage.put({ status: 'playing' satisfies RoomStatus, clock });
       await this.armAlarm(clock, seatOf((await this.loadGame()).toPlay), settings);
+      // Тот, кто ждал, держит снапшот с остановленными часами: без этого
+      // он видит нетронутое основное время, пока сервер уже считает.
+      this.broadcast({ type: 'clock', clock: toClockMessage(clock) });
     }
     return free;
   }
