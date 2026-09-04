@@ -40,10 +40,17 @@ function authHeaders(): Record<string, string> {
 }
 
 async function request(path: string, init?: RequestInit): Promise<unknown> {
-  const response = await fetch(`${ROOM_URL}${path}`, {
-    ...init,
-    headers: { ...authHeaders(), ...(init?.headers as Record<string, string> | undefined) },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${ROOM_URL}${path}`, {
+      ...init,
+      headers: { ...authHeaders(), ...(init?.headers as Record<string, string> | undefined) },
+    });
+  } catch {
+    // `Failed to fetch` игроку ничего не объясняет: до комнаты не дошёл сам
+    // запрос, и единственная понятная причина этому — связь.
+    throw new Error('Комната не отвечает — проверьте связь');
+  }
 
   const body: unknown = await response.json().catch(() => null);
   if (!response.ok) {

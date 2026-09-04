@@ -223,6 +223,8 @@ export const ServerStateSchema = z.object({
   moves: z.array(MoveRecordSchema),
   yourColor: ColorSchema.nullable(),
   online: z.array(ColorSchema),
+  /** Сколько человек смотрит партию, не занимая места за доской. */
+  watchers: z.number().int().nonnegative(),
   result: z.string().nullable(),
   clock: ClockSchema,
   scoring: ScoringSchema.nullable(),
@@ -238,6 +240,7 @@ export const ServerSyncSchema = z.object({
   moves: z.array(MoveRecordSchema),
   yourColor: ColorSchema.nullable(),
   online: z.array(ColorSchema),
+  watchers: z.number().int().nonnegative(),
   result: z.string().nullable(),
   clock: ClockSchema,
   scoring: ScoringSchema.nullable(),
@@ -283,6 +286,7 @@ export const ServerOverSchema = z.object({
 export const ServerPresenceSchema = z.object({
   type: z.literal('presence'),
   online: z.array(ColorSchema),
+  watchers: z.number().int().nonnegative(),
   seats: z.array(SeatSchema),
   status: RoomStatusSchema,
 });

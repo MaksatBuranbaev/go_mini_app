@@ -76,7 +76,8 @@ interface Seats {
 interface SocketInfo {
   userId: number;
   name: string;
-  color: SeatColor;
+  /** `null` — наблюдатель: пришёл по ссылке, когда мест уже не было. */
+  color: SeatColor | null;
 }
 
 function moveKey(seq: number): string {
@@ -210,8 +211,9 @@ export class Room extends DurableObject<Env> {
     const meta = await this.ctx.storage.get<Meta>('meta');
     if (!meta) return new Response('комната не найдена', { status: 404 });
 
+    // Мест нет — пускаем смотреть. Это же разруливает гонку, когда ссылку
+    // открыли вдвоём: место достаётся первому, второй остаётся наблюдателем.
     const color = await this.takeSeat({ id: userId, name });
-    if (!color) return new Response('мест за доской нет', { status: 403 });
 
     const pair = new WebSocketPair();
     this.ctx.acceptWebSocket(pair[1]);
@@ -301,6 +303,7 @@ export class Room extends DurableObject<Env> {
         moves: await this.movesBetween(lastSeq + 1, seq),
         yourColor: infoOf(ws)?.color ?? null,
         online: this.online(),
+        watchers: this.watchers(),
         result: await this.result(),
         clock: await this.clockMessage(),
         scoring: await this.scoring(),
@@ -318,8 +321,8 @@ export class Room extends DurableObject<Env> {
     seq: number,
     point: { x: number; y: number } | null,
   ): Promise<void> {
-    const info = infoOf(ws);
-    if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
+    const info = seatedOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы наблюдаете за партией');
 
     if ((await this.status()) !== 'playing') {
       return this.fail(ws, 'not-playing', 'сейчас не игра');
@@ -410,8 +413,8 @@ export class Room extends DurableObject<Env> {
   }
 
   private async onResign(ws: WebSocket): Promise<void> {
-    const info = infoOf(ws);
-    if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
+    const info = seatedOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы наблюдаете за партией');
 
     const status = await this.status();
     if (status !== 'playing' && status !== 'scoring') {
@@ -440,8 +443,8 @@ export class Room extends DurableObject<Env> {
   }
 
   private async onScoringToggle(ws: WebSocket, point: number): Promise<void> {
-    const info = infoOf(ws);
-    if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
+    const info = seatedOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы наблюдаете за партией');
     if ((await this.status()) !== 'scoring') {
       return this.fail(ws, 'not-scoring', 'сейчас не подсчёт');
     }
@@ -466,8 +469,8 @@ export class Room extends DurableObject<Env> {
   }
 
   private async onScoringAccept(ws: WebSocket): Promise<void> {
-    const info = infoOf(ws);
-    if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
+    const info = seatedOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы наблюдаете за партией');
     if ((await this.status()) !== 'scoring') {
       return this.fail(ws, 'not-scoring', 'сейчас не подсчёт');
     }
@@ -488,8 +491,8 @@ export class Room extends DurableObject<Env> {
   }
 
   private async onScoringResume(ws: WebSocket): Promise<void> {
-    const info = infoOf(ws);
-    if (!info) return this.fail(ws, 'not-seated', 'вы не за доской');
+    const info = seatedOf(ws);
+    if (!info) return this.fail(ws, 'not-seated', 'вы наблюдаете за партией');
     if ((await this.status()) !== 'scoring') {
       return this.fail(ws, 'not-scoring', 'сейчас не подсчёт');
     }
@@ -613,6 +616,7 @@ export class Room extends DurableObject<Env> {
       moves: await this.movesBetween(1, await this.currentSeq()),
       yourColor: infoOf(ws)?.color ?? null,
       online: this.online(),
+      watchers: this.watchers(),
       result: await this.result(),
       clock: await this.clockMessage(),
       scoring: await this.scoring(),
@@ -706,9 +710,19 @@ export class Room extends DurableObject<Env> {
     for (const ws of this.ctx.getWebSockets()) {
       if (ws === exclude) continue;
       const info = infoOf(ws);
-      if (info) colors.add(info.color);
+      if (info?.color) colors.add(info.color);
     }
     return [...colors];
+  }
+
+  /** Наблюдатели: сокеты без места за доской. */
+  private watchers(exclude?: WebSocket): number {
+    let count = 0;
+    for (const ws of this.ctx.getWebSockets()) {
+      if (ws === exclude) continue;
+      if (infoOf(ws)?.color === null) count++;
+    }
+    return count;
   }
 
   private async broadcastPresence(exclude?: WebSocket): Promise<void> {
@@ -716,6 +730,7 @@ export class Room extends DurableObject<Env> {
     const message: ServerMessage = {
       type: 'presence',
       online: this.online(exclude),
+      watchers: this.watchers(exclude),
       seats: seatList(seats),
       status: await this.status(),
     };
@@ -744,6 +759,12 @@ export class Room extends DurableObject<Env> {
 
 function infoOf(ws: WebSocket): SocketInfo | null {
   return (ws.deserializeAttachment() as SocketInfo | null) ?? null;
+}
+
+/** Игрок за доской. Наблюдателю здесь отказывают: он смотрит, а не ходит. */
+function seatedOf(ws: WebSocket): (SocketInfo & { color: SeatColor }) | null {
+  const info = infoOf(ws);
+  return info && info.color !== null ? { ...info, color: info.color } : null;
 }
 
 function seatList(seats: Seats): Seat[] {

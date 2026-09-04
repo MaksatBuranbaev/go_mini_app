@@ -1,6 +1,31 @@
 import { describe, expect, it } from 'vitest';
 import { BLACK, WHITE, fromSgf, replay, toSgf, type GameRecord } from '../src/index.js';
 
+describe('коми из чужих записей', () => {
+  it('читает обычную запись как есть', () => {
+    expect(fromSgf('(;SZ[19]KM[6.5])').komi).toBe(6.5);
+    expect(fromSgf('(;SZ[19]KM[0])').komi).toBe(0);
+    expect(fromSgf('(;SZ[19]KM[7])').komi).toBe(7);
+  });
+
+  it('делит на сто запись gokifu', () => {
+    // Коми больше сотни в партии не бывает, значит это сотые.
+    expect(fromSgf('(;SZ[19]KM[650])').komi).toBe(6.5);
+    expect(fromSgf('(;SZ[19]KM[750])').komi).toBe(7.5);
+    expect(fromSgf('(;SZ[19]KM[-550])').komi).toBe(-5.5);
+  });
+
+  it('понимает запятую вместо точки', () => {
+    expect(fromSgf('(;SZ[19]KM[6,5])').komi).toBe(6.5);
+  });
+
+  it('пустое и мусорное коми считает нулём', () => {
+    expect(fromSgf('(;SZ[19]KM[])').komi).toBe(0);
+    expect(fromSgf('(;SZ[19]KM[непонятно])').komi).toBe(0);
+    expect(fromSgf('(;SZ[19])').komi).toBe(0);
+  });
+});
+
 describe('чтение SGF', () => {
   it('разбирает заголовок и ходы', () => {
     const record = fromSgf('(;GM[1]FF[4]SZ[9]KM[5.5]RE[B+2.5]PB[Чёрные]PW[Белые];B[cc];W[gg];B[])');

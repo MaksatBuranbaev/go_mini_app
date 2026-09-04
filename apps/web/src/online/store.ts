@@ -44,6 +44,8 @@ interface OnlineStore {
   seats: Seat[];
   online: SeatColor[];
   yourColor: SeatColor | null;
+  /** Сколько человек смотрит партию со стороны. */
+  watchers: number;
   result: string | null;
   score: FinalScore | null;
 
@@ -76,10 +78,27 @@ interface OnlineStore {
   toggleDead: (point: number) => void;
   acceptScore: () => void;
   resumeGame: () => void;
+  /** Ручная попытка переподключиться — кнопка на экране разрыва. */
+  retry: () => void;
 }
 
 /** Сокет живёт вне стора: он не состояние, а канал, и в рендере не участвует. */
 let socket: ReconnectingWebSocket | null = null;
+
+/**
+ * Разрыв сокета браузер замечает не сразу: пока никто не пишет в него, он
+ * выглядит живым. А вот про саму сеть система знает мгновенно — на этом и
+ * держимся: пропала сеть, показываем разрыв; вернулась, переподключаемся,
+ * не дожидаясь очередной попытки бэкоффа.
+ */
+let networkHandlers: { online: () => void; offline: () => void } | null = null;
+
+function unwatchNetwork(): void {
+  if (!networkHandlers) return;
+  window.removeEventListener('online', networkHandlers.online);
+  window.removeEventListener('offline', networkHandlers.offline);
+  networkHandlers = null;
+}
 
 /** Сколько ждём подтверждения хода, прежде чем считать соединение мёртвым. */
 const DELIVERY_TIMEOUT_MS = 3000;
@@ -116,6 +135,7 @@ const IDLE = {
   status: 'waiting' as RoomStatus,
   seats: [] as Seat[],
   online: [] as SeatColor[],
+  watchers: 0,
   yourColor: null,
   result: null,
   score: null,
@@ -139,6 +159,15 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
   connect: (roomId) => {
     if (socket) socket.close();
     set({ ...IDLE, roomId, connection: 'connecting' });
+
+    unwatchNetwork();
+    networkHandlers = {
+      online: () => socket?.reconnect(),
+      offline: () => set({ connection: 'offline' }),
+    };
+    window.addEventListener('online', networkHandlers.online);
+    window.addEventListener('offline', networkHandlers.offline);
+    if (!navigator.onLine) set({ connection: 'offline' });
 
     // URL считается функцией, а не строкой: на каждое переподключение нужна
     // свежая initData, иначе после долгой паузы комната отвергнет подпись.
@@ -167,9 +196,15 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 
   leave: () => {
     stopWatching();
+    unwatchNetwork();
     socket?.close();
     socket = null;
     set({ ...IDLE });
+  },
+
+  retry: () => {
+    set({ notice: null });
+    socket?.reconnect();
   },
 
   aim: (point) => {
@@ -278,6 +313,7 @@ function handleServerMessage(
         status: message.status,
         seats: message.seats,
         online: message.online,
+        watchers: message.watchers,
         yourColor: message.yourColor,
         result: message.result,
         scoring: message.scoring,
@@ -299,6 +335,7 @@ function handleServerMessage(
         status: message.status,
         seats: message.seats,
         online: message.online,
+        watchers: message.watchers,
         yourColor: message.yourColor,
         result: message.result,
         scoring: message.scoring,
@@ -340,7 +377,12 @@ function handleServerMessage(
       return;
 
     case 'presence':
-      set({ online: message.online, seats: message.seats, status: message.status });
+      set({
+        online: message.online,
+        watchers: message.watchers,
+        seats: message.seats,
+        status: message.status,
+      });
       return;
 
     case 'error':

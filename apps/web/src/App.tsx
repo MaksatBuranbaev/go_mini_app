@@ -1,4 +1,4 @@
-import type { GameSettings } from '@go/protocol';
+import type { GameSettings, SeatColor } from '@go/protocol';
 import { useState } from 'react';
 import { ArchiveScreen } from './archive/ArchiveScreen.js';
 import { ReviewScreen } from './archive/ReviewScreen.js';
@@ -18,7 +18,7 @@ import { startParam } from './telegram/init.js';
 type Route =
   | { view: 'lobby' }
   | { view: 'join'; roomId: string }
-  | { view: 'room'; roomId: string; settings: GameSettings }
+  | { view: 'room'; roomId: string; settings: GameSettings; expected?: SeatColor | null }
   | { view: 'archive' }
   | { view: 'review'; id: string };
 
@@ -41,7 +41,9 @@ export function App() {
       return (
         <JoinScreen
           roomId={route.roomId}
-          onAccept={(settings) => setRoute({ view: 'room', roomId: route.roomId, settings })}
+          onAccept={(settings, expected) =>
+            setRoute({ view: 'room', roomId: route.roomId, settings, expected })
+          }
           onCancel={() => setRoute({ view: 'lobby' })}
         />
       );
@@ -51,6 +53,7 @@ export function App() {
         <RoomScreen
           roomId={route.roomId}
           settings={route.settings}
+          expected={route.expected ?? null}
           onLeave={() => setRoute({ view: 'lobby' })}
         />
       );

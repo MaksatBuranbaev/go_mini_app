@@ -77,14 +77,10 @@ export function fromSgf(text: string): GameRecord {
 
   const size = Number(first(root, 'SZ') ?? 19);
   const handicap = Number(first(root, 'HA') ?? 0);
-  // TODO(sgf-komi): часть сервисов (gokifu и другие экспортёры) пишет коми
-  // умноженным на 100 — `KM[650]` вместо `KM[6.5]`. Сейчас читается буквально.
-  // На легальность ходов не влияет, ломает только импорт чужих партий.
-  const komiRaw = first(root, 'KM');
 
   const record: GameRecord = {
     size,
-    komi: komiRaw === undefined ? 0 : Number(komiRaw),
+    komi: parseKomi(first(root, 'KM')),
     handicap,
     moves: [],
   };
@@ -127,6 +123,21 @@ export function fromSgf(text: string): GameRecord {
   }
 
   return record;
+}
+
+/**
+ * Коми из чужих записей.
+ *
+ * Единого формата у экспортёров нет: gokifu и часть сервисов пишет значение
+ * умноженным на сто — `KM[650]` вместо `KM[6.5]`, — а европейские редакторы
+ * ставят запятую вместо точки. Коми больше сотни в реальной партии не бывает,
+ * поэтому такое значение однозначно читается как сотые.
+ */
+export function parseKomi(raw: string | undefined): number {
+  if (raw === undefined) return 0;
+  const value = Number(raw.trim().replace(',', '.'));
+  if (!Number.isFinite(value)) return 0;
+  return Math.abs(value) >= 100 ? value / 100 : value;
 }
 
 function first(properties: Properties, key: string): string | undefined {

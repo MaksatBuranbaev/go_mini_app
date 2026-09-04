@@ -1,4 +1,4 @@
-import type { GameSettings, RoomPreview } from '@go/protocol';
+import type { GameSettings, RoomPreview, SeatColor } from '@go/protocol';
 import { Button, Cell, Placeholder, Section, Spinner } from '@telegram-apps/telegram-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchRoomPreview } from '../api/room.js';
@@ -7,7 +7,8 @@ import { timeControlText } from './RoomScreen.js';
 
 export interface JoinScreenProps {
   roomId: string;
-  onAccept: (settings: GameSettings) => void;
+  /** Второй аргумент — место, которое комната обещала на момент превью. */
+  onAccept: (settings: GameSettings, expected: SeatColor | null) => void;
   onCancel: () => void;
 }
 
@@ -36,13 +37,16 @@ export function JoinScreen({ roomId, onAccept, onCancel }: JoinScreenProps) {
   }, [roomId]);
 
   const accept = useCallback(() => {
-    if (preview?.yourColor) onAccept(preview.settings);
+    if (preview) onAccept(preview.settings, preview.yourColor);
   }, [preview, onAccept]);
 
   useBackButton(onCancel);
   useMainButton(
     useMemo(
-      () => (preview?.yourColor ? { text: 'Принять', onClick: accept } : null),
+      () =>
+        preview
+          ? { text: preview.yourColor ? 'Принять' : 'Смотреть партию', onClick: accept }
+          : null,
       [preview, accept],
     ),
   );
@@ -72,7 +76,9 @@ export function JoinScreen({ roomId, onAccept, onCancel }: JoinScreenProps) {
       <header className="status">
         <div className="status-main">Приглашение в партию</div>
         <div className="status-sub">
-          {full ? 'Мест за доской больше нет' : `Вы сядете ${colorWord(preview.yourColor!)}`}
+          {full
+            ? 'Мест за доской нет — можно смотреть со стороны'
+            : `Вы сядете ${colorWord(preview.yourColor!)}`}
         </div>
       </header>
 
@@ -101,9 +107,9 @@ export function JoinScreen({ roomId, onAccept, onCancel }: JoinScreenProps) {
       </Section>
 
       <footer className="actions">
-        {!full && !hasNativeButtons() && (
+        {!hasNativeButtons() && (
           <Button size="l" stretched onClick={accept}>
-            Принять
+            {full ? 'Смотреть партию' : 'Принять'}
           </Button>
         )}
         <Button size="l" mode="outline" stretched onClick={onCancel}>

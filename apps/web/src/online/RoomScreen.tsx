@@ -1,7 +1,7 @@
 import { areaOwners } from '@go/engine';
 import type { GameSettings, Seat, SeatColor } from '@go/protocol';
 import { isMiniAppDark, openTelegramLink, useSignal } from '@telegram-apps/sdk-react';
-import { Button, Cell, Section } from '@telegram-apps/telegram-ui';
+import { Button, Cell, Placeholder, Section, Spinner } from '@telegram-apps/telegram-ui';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { inviteLink } from '../api/room.js';
 import { archiveGame } from '../archive/save.js';
@@ -16,10 +16,12 @@ export interface RoomScreenProps {
   roomId: string;
   /** Настройки известны до соединения — по ним рисуется скелетон доски. */
   settings: GameSettings;
+  /** Место, которое обещало приглашение. Если комната дала другое — гонка. */
+  expected?: SeatColor | null;
   onLeave: () => void;
 }
 
-export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
+export function RoomScreen({ roomId, settings, expected, onLeave }: RoomScreenProps) {
   const store = useOnlineStore();
   const isDark = useSignal(isMiniAppDark);
   const { connect, leave, aim, clearAim, toggleDead } = store;
@@ -51,15 +53,18 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
     }).catch((cause: unknown) => console.warn('[архив] партия не сохранилась', cause));
   }, [store.status, store.game, store.result, store.record, store.seats, store.settings, roomId, settings]);
 
+  // Наблюдателю бросать нечего: он ничего не начинал.
+  const watching = store.connection === 'online' && store.yourColor === null;
+
   const exit = useCallback(async () => {
-    if (store.status === 'playing' || store.status === 'scoring') {
+    if (!watching && (store.status === 'playing' || store.status === 'scoring')) {
       const confirmed = await confirmAction('Выйти из партии? Комната останется.', 'Выйти');
       if (!confirmed) return;
     }
     forgetRoom();
     leave();
     onLeave();
-  }, [store.status, leave, onLeave]);
+  }, [store.status, watching, leave, onLeave]);
 
   const doPass = useCallback(async () => {
     const confirmed = await confirmAction(
@@ -104,13 +109,18 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
     if (store.status === 'waiting') {
       return { text: 'Позвать друга', onClick: () => share(roomId) };
     }
+    if (watching) return null;
     if (store.status === 'scoring') {
       return { text: 'Принять счёт', onClick: store.acceptScore, enabled: !iAccepted };
     }
     return null;
-  }, [store.status, store.acceptScore, iAccepted, roomId]);
+  }, [store.status, store.acceptScore, iAccepted, roomId, watching]);
 
   useMainButton(main);
+
+  if (!store.game && store.connection !== 'online') {
+    return <ConnectingScreen connection={store.connection} onRetry={store.retry} onLeave={onLeave} />;
+  }
 
   if (store.status === 'waiting') {
     return (
@@ -131,13 +141,22 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
 
   return (
     <div className="screen">
+      {store.connection !== 'online' && (
+        <div className="banner">
+          {connectionText(store.connection)}
+          <button type="button" className="banner-action" onClick={store.retry}>
+            Повторить
+          </button>
+        </div>
+      )}
+
       <header className="status">
-        <div className="status-main">{headline(store, myTurn)}</div>
+        <div className="status-main">{headline(store, myTurn, watching)}</div>
         <div className="status-sub">
           {store.notice ? (
             <span className="status-warn">{store.notice}</span>
           ) : (
-            subline(store, accepted)
+            subline(store, accepted, watching, expected ?? null)
           )}
         </div>
         {store.clock && (
@@ -161,12 +180,18 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
         rejected={store.rejected}
         dead={dead}
         owners={owners}
-        onTapPoint={store.status === 'scoring' ? toggleDead : aim}
+        onTapPoint={watching ? NOOP : store.status === 'scoring' ? toggleDead : aim}
         onTapOutside={clearAim}
       />
 
       <footer className="actions">
-        {store.status === 'playing' && (
+        {watching && store.status !== 'finished' && (
+          <Button size="l" mode="outline" stretched onClick={() => void exit()}>
+            В лобби
+          </Button>
+        )}
+
+        {!watching && store.status === 'playing' && (
           <div className="actions-row">
             <Button
               size="m"
@@ -183,7 +208,7 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
           </div>
         )}
 
-        {store.status === 'scoring' && (
+        {!watching && store.status === 'scoring' && (
           <>
             {!hasNativeButtons() && (
               <Button size="l" stretched disabled={iAccepted} onClick={store.acceptScore}>
@@ -203,6 +228,41 @@ export function RoomScreen({ roomId, settings, onLeave }: RoomScreenProps) {
         )}
       </footer>
     </div>
+  );
+}
+
+interface ConnectingProps {
+  connection: Connection;
+  onRetry: () => void;
+  onLeave: () => void;
+}
+
+/**
+ * Экран без связи. Разрыв посреди партии показывается полосой поверх доски,
+ * а вот когда показывать ещё нечего, честнее занять весь экран: «ждём
+ * соперника» в этот момент — неправда.
+ */
+function ConnectingScreen({ connection, onRetry, onLeave }: ConnectingProps) {
+  if (connection === 'offline') {
+    return (
+      <Placeholder
+        header="Нет связи"
+        description="Комната не отвечает. Партия не пропала — она ждёт на сервере."
+      >
+        <Button size="l" onClick={onRetry}>
+          Повторить
+        </Button>
+        <Button size="l" mode="outline" onClick={onLeave}>
+          В лобби
+        </Button>
+      </Placeholder>
+    );
+  }
+
+  return (
+    <Placeholder header="Комната" description="Соединяемся…">
+      <Spinner size="m" />
+    </Placeholder>
   );
 }
 
@@ -274,6 +334,8 @@ function share(roomId: string): void {
   window.open(url, '_blank', 'noopener');
 }
 
+const NOOP = () => {};
+
 type Store = ReturnType<typeof useOnlineStore.getState>;
 
 /**
@@ -290,15 +352,32 @@ function runningSide(store: Store): SeatColor | null {
   return seatOf(store.game.toPlay);
 }
 
-function headline(store: Store, myTurn: boolean): string {
+function headline(store: Store, myTurn: boolean, watching: boolean): string {
   if (store.status === 'finished') return resultText(store.result);
+  if (watching) {
+    if (store.status === 'scoring') return 'Игроки размечают мёртвые камни';
+    if (!store.game) return 'Открываем комнату…';
+    return store.game.toPlay === engineColorOf('black') ? 'Ход чёрных' : 'Ход белых';
+  }
   if (store.status === 'scoring') return 'Отметьте мёртвые камни';
   if (!store.game) return 'Открываем комнату…';
   return myTurn ? 'Ваш ход' : 'Ход соперника';
 }
 
-function subline(store: Store, accepted: SeatColor[]): string {
-  if (store.connection !== 'online') return connectionText(store.connection);
+function subline(
+  store: Store,
+  accepted: SeatColor[],
+  watching: boolean,
+  expected: SeatColor | null,
+): string {
+  // О разрыве говорит полоса наверху — дублировать её здесь незачем.
+  if (watching) {
+    // Приглашение обещало место, а комната его не дала — значит, ссылку
+    // открыли вдвоём и место успели занять. Сказать об этом надо прямо.
+    if (expected) return 'Место успели занять — вы наблюдаете';
+    // Себя в счётчике не показываем: «вы наблюдаете · 1 смотрит» — это про вас же.
+    return withWatchers('Вы наблюдаете за партией', store.watchers - 1, 'ещё ');
+  }
 
   if (store.status === 'scoring') {
     if (accepted.length === 0) return 'Тапните по мёртвой группе, потом примите счёт';
@@ -313,7 +392,14 @@ function subline(store: Store, accepted: SeatColor[]): string {
   // Кнопки подтверждения нет, поэтому подсказка обязана быть на виду.
   if (store.pending !== null) return 'Тапните ещё раз по точке, чтобы поставить камень';
 
-  return opponentText(store.seats, store.online, store.yourColor);
+  return withWatchers(opponentText(store.seats, store.online, store.yourColor), store.watchers);
+}
+
+/** Наблюдатели дописываются к строке о сопернике, а не занимают свою. */
+function withWatchers(text: string, watchers: number, prefix = ''): string {
+  if (watchers <= 0) return text;
+  const tail = watchers % 10 === 1 && watchers % 100 !== 11 ? 'смотрит' : 'смотрят';
+  return `${text} · ${prefix}${watchers} ${tail}`;
 }
 
 function opponentText(seats: Seat[], online: SeatColor[], yourColor: SeatColor | null): string {
