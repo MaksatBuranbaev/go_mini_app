@@ -210,3 +210,118 @@ body {
   gap: 8px;
   padding: 8px 16px 16px;
 }
+
+/* --- лобби --- */
+
+/*
+ * Фон в тон доске. Кладётся поверх цвета темы, а не вместо него: в чужих
+ * клиентских темах жёсткий цвет даёт нечитаемый текст.
+ */
+.lobby {
+  background:
+    radial-gradient(120% 38% at 50% 0%, rgba(214, 162, 82, 0.55), transparent 70%),
+    linear-gradient(180deg, rgba(214, 162, 82, 0.16), rgba(214, 162, 82, 0.04) 45%, transparent 70%),
+    var(--tg-theme-secondary-bg-color, #f0f0f4);
+}
+
+:root[data-theme='dark'] .lobby {
+  background:
+    radial-gradient(120% 38% at 50% 0%, rgba(176, 128, 62, 0.34), transparent 70%),
+    linear-gradient(180deg, rgba(176, 128, 62, 0.12), transparent 60%),
+    var(--tg-theme-secondary-bg-color, #17181a);
+}
+
+/*
+ * Секции — карточки. Селектор идёт по структуре, а не по классу telegram-ui:
+ * там хеши, которые меняются от версии к версии.
+ */
+.lobby > * > *:not(.lobby-start) {
+  margin: 0 8px 12px;
+  border-radius: 14px;
+  background: var(--tg-theme-bg-color, #ffffff);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+}
+
+:root[data-theme='dark'] .lobby > * > *:not(.lobby-start) {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px 14px;
+}
+
+.stepper-value {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  min-width: 72px;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stepper-note {
+  font-size: 11px;
+  opacity: 0.55;
+}
+
+/* Пресеты времени: подпись-оценка над пилюлей, точка у выбранного. */
+.time-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 8px 16px 14px;
+}
+
+.time-preset {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.time-preset-length {
+  padding-left: 4px;
+  font-size: 12px;
+  font-style: italic;
+  opacity: 0.65;
+}
+
+.time-preset-value {
+  position: relative;
+  padding: 11px 34px 11px 16px;
+  font-size: 15px;
+  border-radius: 12px;
+  background: var(--tg-theme-secondary-bg-color, rgba(127, 127, 127, 0.14));
+}
+
+:root[data-theme='dark'] .time-preset-value {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.time-preset-on .time-preset-value {
+  outline: 2px solid var(--tg-theme-link-color, #2f7fd4);
+}
+
+.time-preset-on .time-preset-value::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: #3fbf5f;
+}

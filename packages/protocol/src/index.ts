@@ -42,13 +42,33 @@ export const TimeControlSchema = z.discriminatedUnion('type', [
 
 export type TimeControl = z.infer<typeof TimeControlSchema>;
 
+export const ScoringRulesSchema = z.enum(['chinese', 'japanese']);
+export type ScoringRules = z.infer<typeof ScoringRulesSchema>;
+
+/**
+ * Коми задаётся игроком, поэтому проверяется здесь, а не в интерфейсе:
+ * ровно половины очка и разумный предел. Дробь с четвертью или коми в сто
+ * очков — это уже не партия, а испорченный запрос.
+ */
+const KomiSchema = z
+  .number()
+  .min(-10)
+  .max(10)
+  .refine((value) => Number.isInteger(value * 2), 'коми задаётся с шагом 0.5');
+
 export const GameSettingsSchema = z.object({
   size: BoardSizeSchema,
-  komi: z.number().min(-100).max(100),
+  komi: KomiSchema,
   handicap: z.number().int().min(0).max(9),
   /** Цвет создателя. `random` комната разыгрывает один раз, при создании. */
   creatorColor: z.enum(['black', 'white', 'random']),
   time: TimeControlSchema,
+  /**
+   * Система подсчёта. `default` здесь не косметика: комнаты, созданные до
+   * появления выбора, лежат в storage без этого поля, и их снапшот обязан
+   * читаться дальше.
+   */
+  rules: ScoringRulesSchema.default('chinese'),
 });
 
 export type GameSettings = z.infer<typeof GameSettingsSchema>;

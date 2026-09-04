@@ -6,7 +6,7 @@ import {
   hashBoard,
   play,
   resumePlay,
-  scoreArea,
+  score,
   stateFromBoard,
   toSgf,
   WHITE,
@@ -179,6 +179,7 @@ export class Room extends DurableObject<Env> {
       })),
       date: new Date(meta.createdAt).toISOString().slice(0, 10),
       players: { black: seats.black?.name, white: seats.white?.name },
+      rules: meta.settings.rules,
     };
 
     const result = await this.result();
@@ -486,8 +487,9 @@ export class Room extends DurableObject<Env> {
       return;
     }
 
-    const score = scoreArea(await this.loadGame(), next.dead);
-    await this.finish(score.result, { black: score.black, white: score.white });
+    const settings = (await this.meta()).settings;
+    const final = score(await this.loadGame(), next.dead, settings.rules);
+    await this.finish(final.result, { black: final.black, white: final.white });
   }
 
   private async onScoringResume(ws: WebSocket): Promise<void> {

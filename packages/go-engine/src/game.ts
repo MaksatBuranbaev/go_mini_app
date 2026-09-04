@@ -12,6 +12,7 @@ import {
   type Phase,
   type Result,
   type Rules,
+  type ScoringRules,
 } from './types.js';
 import { hashBoard, stoneHash } from './zobrist.js';
 
@@ -43,9 +44,16 @@ export interface GameOptions {
 }
 
 /** Коми по умолчанию для китайского подсчёта: ничьих не бывает. */
-export function defaultKomi(size: number, handicap = 0): number {
+export function defaultKomi(
+  size: number,
+  handicap = 0,
+  rules: ScoringRules = 'chinese',
+): number {
   if (handicap > 0) return 0.5;
-  return size === 19 ? 7.5 : size === 13 ? 6.5 : 5.5;
+  // На 19×19 системы разошлись исторически: китайская компенсация 7.5,
+  // японская 6.5. На малых досках такой развилки нет.
+  if (size === 19) return rules === 'japanese' ? 6.5 : 7.5;
+  return size === 13 ? 6.5 : 5.5;
 }
 
 /** Гандикапные точки в стандартном порядке размещения. */

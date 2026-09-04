@@ -1,15 +1,30 @@
 import { neighbors } from './board.js';
-import { BLACK, EMPTY, WHITE, type Color, type Stone } from './types.js';
+import { BLACK, EMPTY, WHITE, type Color, type ScoringRules, type Stone } from './types.js';
 import type { GameState } from './game.js';
 
 export interface ScoreResult {
-  /** Камни на доске плюс окружённые пункты. Коми в `white` уже включено. */
+  /** Итог стороны. Коми в `white` уже включено. */
   black: number;
   white: number;
   /** Строка в формате SGF: `B+7.5`, `W+2.5`, `Draw`. */
   result: string;
   territory: { black: number; white: number };
+  /** Камни на доске: дают очки только в китайском счёте. */
   stones: { black: number; white: number };
+  /** Пленные вместе со снятыми мёртвыми: дают очки только в японском. */
+  prisoners: { black: number; white: number };
+}
+
+/** Счёт по выбранной системе. Единственная точка, где системы расходятся. */
+export function score(
+  state: GameState,
+  dead: Iterable<number> = [],
+  rules: ScoringRules = 'chinese',
+  komi: number = state.komi,
+): ScoreResult {
+  return rules === 'japanese'
+    ? scoreTerritory(state, dead, komi)
+    : scoreArea(state, dead, komi);
 }
 
 /**
@@ -48,6 +63,56 @@ export function scoreArea(
     result: formatResult(black - white),
     territory,
     stones: { black: blackStones, white: whiteStones },
+    prisoners: { black: 0, white: 0 },
+  };
+}
+
+/**
+ * Японский подсчёт (territory scoring): очко за каждый окружённый пункт и за
+ * каждого пленного. Свои камни на доске очков не дают — поэтому лишний ход
+ * внутри собственной территории здесь стоит очко, в отличие от китайского.
+ *
+ * Мёртвый камень — двойная потеря: его пункт достаётся сопернику территорией,
+ * и сам он уходит сопернику в плен.
+ *
+ * Про сэки: пустая область, граничащая с обоими цветами, не даёт очков никому
+ * — это ровно случай общих дамэ. Сэки с глазами (глаза внутри такой позиции
+ * японские правила тоже не считают) движок не распознаёт, и в редкой позиции
+ * даст территорию там, где судья не дал бы. Полное определение сэки требует
+ * анализа жизни и смерти, которого у нас нет.
+ */
+export function scoreTerritory(
+  state: GameState,
+  dead: Iterable<number> = [],
+  komi: number = state.komi,
+): ScoreResult {
+  const { size } = state;
+  const board = Uint8Array.from(state.board);
+
+  let deadBlack = 0;
+  let deadWhite = 0;
+  for (const point of expandGroups(board, size, dead)) {
+    if (board[point] === BLACK) deadBlack++;
+    else deadWhite++;
+    board[point] = EMPTY;
+  }
+
+  const territory = countTerritory(board, size);
+  const prisoners = {
+    black: state.capturedByBlack + deadWhite,
+    white: state.capturedByWhite + deadBlack,
+  };
+
+  const black = territory.black + prisoners.black;
+  const white = territory.white + prisoners.white + komi;
+
+  return {
+    black,
+    white,
+    result: formatResult(black - white),
+    territory,
+    stones: { black: 0, white: 0 },
+    prisoners,
   };
 }
 
@@ -134,6 +199,9 @@ function countTerritory(
  * Живые камни остаются своим цветом, пустые пункты получают цвет окружившего их игрока,
  * спорные области — `EMPTY`. Считается тем же обходом, что и очки, поэтому подсветка
  * территории в UI не может разойтись с итоговым счётом.
+ *
+ * Карта общая для обеих систем: территорию они делят одинаково, расходятся
+ * только в том, что к ней прибавляют — камни на доске или пленных.
  */
 export function areaOwners(state: GameState, dead: Iterable<number> = []): Uint8Array {
   const { size } = state;

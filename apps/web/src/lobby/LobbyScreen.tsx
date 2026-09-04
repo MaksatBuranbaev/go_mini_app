@@ -1,30 +1,22 @@
 import { defaultKomi } from '@go/engine';
-import type { GameSettings, TimeControl } from '@go/protocol';
+import type { GameSettings, ScoringRules, TimeControl } from '@go/protocol';
 import { Button, Cell, List, Section } from '@telegram-apps/telegram-ui';
 import { useState } from 'react';
 import { createRoom } from '../api/room.js';
 import { BOARD_SIZES, HANDICAPS, useGameStore } from '../game/store.js';
 import { isSoundEnabled, setSoundEnabled } from '../telegram/sound.js';
-
-/**
- * Готовые контроли времени вместо полного редактора: в лобби для друзей
- * важнее сделать выбор в один тап, чем задать любые мыслимые настройки.
- */
-const TIME_PRESETS: { label: string; value: TimeControl }[] = [
-  { label: 'Без часов', value: { type: 'none' } },
-  { label: 'Блиц 5+5', value: { type: 'fischer', mainMs: 300_000, incrementMs: 5_000 } },
-  { label: 'Фишер 10+10', value: { type: 'fischer', mainMs: 600_000, incrementMs: 10_000 } },
-  {
-    label: 'Бёёми 10 + 3×30',
-    value: { type: 'byoyomi', mainMs: 600_000, periodMs: 30_000, periods: 3 },
-  },
-];
+import { TIME_PRESETS, controlText, lengthText } from './time.js';
 
 const COLORS = [
   { value: 'black', label: 'Чёрные' },
   { value: 'white', label: 'Белые' },
   { value: 'random', label: 'Жребий' },
 ] as const;
+
+const RULES: { value: ScoringRules; label: string; hint: string }[] = [
+  { value: 'chinese', label: 'Китайские', hint: 'Камни на доске плюс территория' },
+  { value: 'japanese', label: 'Японские', hint: 'Территория плюс пленные' },
+];
 
 export interface LobbyScreenProps {
   onCreated: (roomId: string, settings: GameSettings) => void;
@@ -35,18 +27,26 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
   const [size, setSize] = useState<9 | 13 | 19>(9);
   const [handicap, setHandicap] = useState(0);
   const [creatorColor, setCreatorColor] = useState<GameSettings['creatorColor']>('random');
-  const [timeIndex, setTimeIndex] = useState(0);
+  const [rules, setRules] = useState<ScoringRules>('chinese');
+  // `null` — коми считается автоматически. Как только игрок тронул его руками,
+  // автоподстановка выключается: иначе смена доски молча затрёт выбор.
+  const [komi, setKomi] = useState<number | null>(null);
+  const [timeIndex, setTimeIndex] = useState(1);
   const [sound, setSound] = useState(isSoundEnabled);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const startHotseat = useGameStore((state) => state.start);
 
+  const autoKomi = defaultKomi(size, handicap, rules);
+  const effectiveKomi = komi ?? autoKomi;
+
   const settings: GameSettings = {
     size,
     handicap,
-    komi: defaultKomi(size, handicap),
+    komi: effectiveKomi,
     creatorColor,
-    time: TIME_PRESETS[timeIndex]!.value,
+    time: TIME_PRESETS[timeIndex]!,
+    rules,
   };
 
   const invite = async () => {
@@ -65,7 +65,7 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
   return (
     // Высота #root задана переменной вьюпорта, поэтому лобби прокручивается
     // само: полагаться на прокрутку документа в WebView нельзя.
-    <div className="screen screen-scroll">
+    <div className="screen screen-scroll lobby">
       <List>
         <Section header="Размер доски">
           <div className="choice-row">
@@ -112,24 +112,61 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
           </div>
         </Section>
 
-        <Section header="Время">
-          <div className="choice-row choice-wrap">
-            {TIME_PRESETS.map((preset, index) => (
+        <Section
+          header="Правила"
+          footer={RULES.find((option) => option.value === rules)!.hint}
+        >
+          <div className="choice-row">
+            {RULES.map((option) => (
               <Button
-                key={preset.label}
-                size="s"
-                mode={index === timeIndex ? 'filled' : 'outline'}
-                onClick={() => setTimeIndex(index)}
+                key={option.value}
+                size="m"
+                mode={option.value === rules ? 'filled' : 'outline'}
+                onClick={() => setRules(option.value)}
               >
-                {preset.label}
+                {option.label}
               </Button>
             ))}
           </div>
         </Section>
 
+        <Section header="Коми" footer="Компенсация белым за то, что чёрные ходят первыми.">
+          <div className="stepper">
+            <Button size="s" mode="outline" onClick={() => setKomi(clampKomi(effectiveKomi - 0.5))}>
+              −
+            </Button>
+            <span className="stepper-value">
+              {effectiveKomi}
+              {komi === null && <span className="stepper-note">авто</span>}
+            </span>
+            <Button size="s" mode="outline" onClick={() => setKomi(clampKomi(effectiveKomi + 0.5))}>
+              +
+            </Button>
+            {komi !== null && (
+              <Button size="s" mode="plain" onClick={() => setKomi(null)}>
+                сбросить
+              </Button>
+            )}
+          </div>
+        </Section>
+
+        <Section header="Время">
+          <div className="time-presets">
+            {TIME_PRESETS.map((preset, index) => (
+              <button
+                key={index}
+                type="button"
+                className={`time-preset${index === timeIndex ? ' time-preset-on' : ''}`}
+                onClick={() => setTimeIndex(index)}
+              >
+                <span className="time-preset-length">{lengthText(preset, size)}</span>
+                <span className="time-preset-value">{controlText(preset)}</span>
+              </button>
+            ))}
+          </div>
+        </Section>
+
         <Section header="Партия">
-          <Cell subtitle="Коми">{settings.komi}</Cell>
-          <Cell subtitle="Правила">Китайские, позиционный суперко</Cell>
           <Cell
             subtitle="Стук камня о доску"
             after={
@@ -147,6 +184,7 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
           >
             Звук
           </Cell>
+          <Cell subtitle="Ко">Позиционный суперко</Cell>
         </Section>
 
         {error && (
@@ -163,7 +201,7 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
             size="l"
             mode="outline"
             stretched
-            onClick={() => startHotseat({ size, handicap, komi: settings.komi })}
+            onClick={() => startHotseat({ size, handicap, komi: effectiveKomi, rules })}
           >
             На одном устройстве
           </Button>
@@ -174,4 +212,8 @@ export function LobbyScreen({ onCreated, onArchive }: LobbyScreenProps) {
       </List>
     </div>
   );
+}
+
+function clampKomi(value: number): number {
+  return Math.min(10, Math.max(-10, Math.round(value * 2) / 2));
 }

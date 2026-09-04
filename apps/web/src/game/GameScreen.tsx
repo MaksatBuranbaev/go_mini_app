@@ -11,6 +11,7 @@ import { colorName, illegalText, useGameStore } from './store.js';
 export function GameScreen() {
   const {
     game,
+    settings,
     record,
     pending,
     rejected,
@@ -51,12 +52,13 @@ export function GameScreen() {
       komi: game.komi,
       handicap: game.handicap,
       result: game.result,
+      rules: settings?.rules ?? 'chinese',
       record,
       black: 'Чёрные',
       white: 'Белые',
       local: true,
     }).catch((cause: unknown) => console.warn('[архив] партия не сохранилась', cause));
-  }, [game, record]);
+  }, [game, record, settings]);
 
   const doPass = useCallback(async () => {
     const confirmed = await confirmAction(

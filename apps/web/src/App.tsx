@@ -1,5 +1,6 @@
 import type { GameSettings, SeatColor } from '@go/protocol';
-import { useState } from 'react';
+import { isMiniAppDark, useSignal } from '@telegram-apps/sdk-react';
+import { useEffect, useState } from 'react';
 import { ArchiveScreen } from './archive/ArchiveScreen.js';
 import { ReviewScreen } from './archive/ReviewScreen.js';
 import { GameScreen } from './game/GameScreen.js';
@@ -24,6 +25,14 @@ type Route =
 
 export function App() {
   const hotseat = useGameStore((state) => state.game);
+
+  // Тему Telegram отдаёт переменными, но CSS нужен и сам факт «темно сейчас»:
+  // подложки и тени в светлой и тёмной теме считаются по-разному.
+  const isDark = useSignal(isMiniAppDark);
+  useEffect(() => {
+    document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+  }, [isDark]);
+
   const [route, setRoute] = useState<Route>(() => {
     // Открыли по ссылке-приглашению — сразу показываем, во что зовут.
     const param = startParam();

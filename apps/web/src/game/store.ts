@@ -8,11 +8,12 @@ import {
   guessDeadStones,
   play,
   resumePlay,
-  scoreArea,
+  score as scoreBy,
   type GameState,
   type IllegalReason,
   type RecordedMove,
   type ScoreResult,
+  type ScoringRules,
 } from '@go/engine';
 import { create } from 'zustand';
 import {
@@ -26,13 +27,18 @@ export interface GameSettings {
   size: number;
   handicap: number;
   komi: number;
+  rules: ScoringRules;
 }
 
 export const BOARD_SIZES = [9, 13, 19] as const;
 export const HANDICAPS = [0, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 
-export function settingsFor(size: number, handicap: number): GameSettings {
-  return { size, handicap, komi: defaultKomi(size, handicap) };
+export function settingsFor(
+  size: number,
+  handicap: number,
+  rules: ScoringRules = 'chinese',
+): GameSettings {
+  return { size, handicap, komi: defaultKomi(size, handicap, rules), rules };
 }
 
 interface GameStore {
@@ -167,7 +173,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
       rejected: null,
       illegal: null,
       dead,
-      score: scoreArea(next, dead),
+      score: scoreBy(next, dead, get().settings?.rules),
     });
   },
 
@@ -192,13 +198,13 @@ export const useGameStore = create<GameStore>((set, get) => ({
     }
 
     aimFeedback();
-    set({ dead: next, score: scoreArea(game, next) });
+    set({ dead: next, score: scoreBy(game, next, get().settings?.rules) });
   },
 
   acceptScore: () => {
     const { game, dead } = get();
     if (!game || game.phase !== 'scoring') return;
-    const score = scoreArea(game, dead);
+    const score = scoreBy(game, dead, get().settings?.rules);
     set({ game: finish(game, score.result), score });
   },
 

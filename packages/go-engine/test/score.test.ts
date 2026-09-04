@@ -7,7 +7,10 @@ import {
   defaultKomi,
   fromDiagram,
   guessDeadStones,
+  play,
+  score,
   scoreArea,
+  scoreTerritory,
   toIndex,
 } from '../src/index.js';
 
@@ -102,6 +105,117 @@ describe('китайский подсчёт', () => {
     );
 
     expect(guessDeadStones(state).length).toBeGreaterThan(0);
+  });
+});
+
+describe('японский подсчёт', () => {
+  it('считает территорию и не считает свои камни', () => {
+    const state = fromDiagram(
+      [
+        'XX...',
+        'XX...',
+        '.....',
+        '.....',
+        '.....',
+      ],
+      BLACK,
+    );
+
+    const japanese = scoreTerritory(state, [], 0);
+    const chinese = scoreArea(state, [], 0);
+
+    // Территория у обеих систем одна и та же, расходится добавка к ней.
+    expect(japanese.territory).toEqual(chinese.territory);
+    expect(japanese.black).toBe(21);
+    expect(chinese.black).toBe(25);
+    expect(japanese.stones).toEqual({ black: 0, white: 0 });
+  });
+
+  it('мёртвый камень отдаёт и пункт, и себя в плен', () => {
+    const state = fromDiagram(
+      [
+        'XXXXX',
+        'XOO.X',
+        'XOXXX',
+        'XXXXX',
+        'XXXXX',
+      ],
+      BLACK,
+    );
+
+    const marked = toIndex(5, 1, 1);
+    const result = scoreTerritory(state, [marked], 0);
+
+    // Три белых камня уходят в плен, их пункты становятся территорией.
+    expect(result.prisoners).toEqual({ black: 3, white: 0 });
+    expect(result.territory.black).toBe(4);
+    expect(result.black).toBe(7);
+    expect(result.result).toBe('B+7');
+  });
+
+  it('засчитывает пленных, взятых во время партии', () => {
+    // Белый камень в углу теряет последнюю свободу — чёрные берут пленного.
+    const start = fromDiagram(
+      [
+        'OX...',
+        '.....',
+        '.....',
+        '.....',
+        '.....',
+      ],
+      BLACK,
+    );
+
+    const captured = play(start, { type: 'play', x: 0, y: 1 });
+    expect(captured.ok).toBe(true);
+    if (!captured.ok) return;
+
+    expect(captured.value.capturedByBlack).toBe(1);
+    expect(scoreTerritory(captured.value, [], 0).prisoners.black).toBe(1);
+  });
+
+  it('не даёт территории в общих дамэ', () => {
+    const state = fromDiagram(
+      [
+        'XX.OO',
+        'XX.OO',
+        'XX.OO',
+        'XX.OO',
+        'XX.OO',
+      ],
+      BLACK,
+    );
+
+    const japanese = scoreTerritory(state, [], 0);
+
+    expect(japanese.territory).toEqual({ black: 0, white: 0 });
+    expect(japanese.result).toBe('Draw');
+  });
+
+  it('выбирается через общий вход', () => {
+    const state = fromDiagram(
+      [
+        'XX...',
+        'XX...',
+        '.....',
+        '.....',
+        '.....',
+      ],
+      BLACK,
+    );
+
+    expect(score(state, [], 'chinese', 0).black).toBe(25);
+    expect(score(state, [], 'japanese', 0).black).toBe(21);
+    // Без указания системы остаётся китайский — так игралось до появления выбора.
+    expect(score(state, [], undefined, 0).black).toBe(25);
+  });
+
+  it('коми по умолчанию расходится только на 19×19', () => {
+    expect(defaultKomi(19, 0, 'chinese')).toBe(7.5);
+    expect(defaultKomi(19, 0, 'japanese')).toBe(6.5);
+    expect(defaultKomi(13, 0, 'japanese')).toBe(6.5);
+    expect(defaultKomi(9, 0, 'japanese')).toBe(5.5);
+    expect(defaultKomi(19, 4, 'japanese')).toBe(0.5);
   });
 });
 

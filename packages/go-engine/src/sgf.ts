@@ -1,5 +1,5 @@
 import { toIndex, xOf, yOf } from './board.js';
-import { BLACK, WHITE, type Color, type Move } from './types.js';
+import { BLACK, WHITE, type Color, type Move, type ScoringRules } from './types.js';
 
 export interface RecordedMove {
   color: Color;
@@ -10,6 +10,8 @@ export interface GameRecord {
   size: number;
   komi: number;
   handicap: number;
+  /** Система подсчёта: `RU[Chinese]` или `RU[Japanese]` в записи. */
+  rules?: ScoringRules;
   result?: string;
   /** Камни, расставленные до игры: фора (AB) и правки позиции (AW). */
   setup?: { black: number[]; white: number[] };
@@ -42,6 +44,7 @@ export function toSgf(record: GameRecord): string {
     `KM[${record.komi}]`,
   ];
   if (record.handicap >= 2) parts.push(`HA[${record.handicap}]`);
+  if (record.rules) parts.push(`RU[${record.rules === 'japanese' ? 'Japanese' : 'Chinese'}]`);
   if (record.players?.black) parts.push(`PB[${escapeValue(record.players.black)}]`);
   if (record.players?.white) parts.push(`PW[${escapeValue(record.players.white)}]`);
   if (record.date) parts.push(`DT[${record.date}]`);
@@ -84,6 +87,9 @@ export function fromSgf(text: string): GameRecord {
     handicap,
     moves: [],
   };
+
+  const rules = parseRules(first(root, 'RU'));
+  if (rules) record.rules = rules;
 
   const result = first(root, 'RE');
   if (result) record.result = result;
@@ -133,6 +139,18 @@ export function fromSgf(text: string): GameRecord {
  * ставят запятую вместо точки. Коми больше сотни в реальной партии не бывает,
  * поэтому такое значение однозначно читается как сотые.
  */
+/**
+ * Система подсчёта из `RU[]`. Значений там встречается много (AGA, NZ, Ing),
+ * но нас интересует одно различие: считаем территорию или площадь.
+ */
+export function parseRules(raw: string | undefined): ScoringRules | undefined {
+  if (!raw) return undefined;
+  const value = raw.trim().toLowerCase();
+  if (value.startsWith('japanese')) return 'japanese';
+  if (value.startsWith('chinese')) return 'chinese';
+  return undefined;
+}
+
 export function parseKomi(raw: string | undefined): number {
   if (raw === undefined) return 0;
   const value = Number(raw.trim().replace(',', '.'));

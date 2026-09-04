@@ -1,4 +1,11 @@
-import { BLACK, createGame, toSgf, type GameRecord, type RecordedMove } from '@go/engine';
+import {
+  BLACK,
+  createGame,
+  toSgf,
+  type GameRecord,
+  type RecordedMove,
+  type ScoringRules,
+} from '@go/engine';
 import { saveGame, type ArchivedGame } from './storage.js';
 
 export interface ArchiveInput {
@@ -7,6 +14,7 @@ export interface ArchiveInput {
   komi: number;
   handicap: number;
   result: string | null;
+  rules: ScoringRules;
   record: RecordedMove[];
   black: string;
   white: string;
@@ -22,6 +30,7 @@ export async function archiveGame(input: ArchiveInput): Promise<void> {
     komi: input.komi,
     handicap: input.handicap,
     moves: input.record,
+    rules: input.rules,
     players: { black: input.black, white: input.white },
     date: new Date(at).toISOString().slice(0, 10),
     ...(input.result ? { result: input.result } : {}),

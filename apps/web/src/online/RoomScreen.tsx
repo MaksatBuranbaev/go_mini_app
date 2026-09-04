@@ -9,6 +9,7 @@ import { Board } from '../board/Board.js';
 import { hasNativeButtons, useBackButton, useMainButton } from '../telegram/buttons.js';
 import { confirmAction } from '../telegram/feedback.js';
 import { Clocks } from './Clocks.js';
+import { controlText } from '../lobby/time.js';
 import { forgetRoom, rememberRoom } from './session.js';
 import { engineColorOf, seatOf, useOnlineStore, type Connection } from './store.js';
 
@@ -46,6 +47,7 @@ export function RoomScreen({ roomId, settings, expected, onLeave }: RoomScreenPr
       komi: active.komi,
       handicap: active.handicap,
       result: store.result,
+      rules: active.rules,
       record: store.record,
       black: nameOf(store.seats, 'black'),
       white: nameOf(store.seats, 'white'),
@@ -300,6 +302,7 @@ function WaitingScreen({
         <Cell subtitle="Коми">{settings.komi}</Cell>
         <Cell subtitle="Фора">{settings.handicap === 0 ? 'нет' : settings.handicap}</Cell>
         <Cell subtitle="Время">{timeControlText(settings)}</Cell>
+        <Cell subtitle="Правила">{rulesText(settings)}</Cell>
         <Cell subtitle="Вы играете">{yourColor ? colorWord(yourColor) : '—'}</Cell>
       </Section>
 
@@ -432,17 +435,13 @@ function resultText(result: string | null): string {
 }
 
 export function timeControlText(settings: GameSettings): string {
-  const time = settings.time;
-  switch (time.type) {
-    case 'none':
-      return 'без часов';
-    case 'fischer':
-      return `${Math.round(time.mainMs / 60000)} мин + ${Math.round(time.incrementMs / 1000)} с`;
-    case 'byoyomi':
-      return `${Math.round(time.mainMs / 60000)} мин + ${time.periods}×${Math.round(
-        time.periodMs / 1000,
-      )} с`;
-  }
+  return controlText(settings.time);
+}
+
+export function rulesText(settings: GameSettings): string {
+  return settings.rules === 'japanese'
+    ? 'Японские: территория и пленные'
+    : 'Китайские: камни и территория';
 }
 
 function colorWord(color: SeatColor): string {
