@@ -255,11 +255,16 @@ export function finish(state: GameState, result: string): GameState {
 /**
  * Прогон списка ходов. Комната восстанавливает позицию именно так — после
  * гибернации в памяти не остаётся ничего, кроме записанных в storage ходов.
+ *
+ * Ход после двух пасов означает, что игроки вернулись из подсчёта к игре:
+ * «доиграть» отдельной записью не сохраняется, его видно только по тому, что
+ * партия продолжилась. Без этого запись доигранной партии не воспроизводится
+ * вовсе — движок отвергает всё после второго паса.
  */
 export function replay(options: GameOptions, moves: Move[]): Result<GameState> {
   let state = createGame(options);
   for (const move of moves) {
-    const next = play(state, move);
+    const next = play(resumePlay(state), move);
     if (!next.ok) return next;
     state = next.value;
   }

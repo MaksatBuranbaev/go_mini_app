@@ -558,7 +558,9 @@ export class Room extends DurableObject<Env> {
     }
 
     for (const move of await this.movesBetween(from + 1, seq)) {
-      const next = play(state, toEngineMove(move));
+      // Ход после двух пасов — это продолжение после «доиграть»: возврат
+      // из подсчёта в записи не отражается, о нём говорит сам факт хода.
+      const next = play(resumePlay(state), toEngineMove(move));
       if (!next.ok) {
         throw new Error(`ход ${move.seq} не воспроизводится: ${next.reason}`);
       }

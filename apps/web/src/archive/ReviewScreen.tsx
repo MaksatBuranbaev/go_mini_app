@@ -1,4 +1,4 @@
-import { createGame, fromSgf, play, type GameState } from '@go/engine';
+import { createGame, fromSgf, play, resumePlay, type GameState } from '@go/engine';
 import { isMiniAppDark, useSignal } from '@telegram-apps/sdk-react';
 import { Button, Placeholder, Spinner } from '@telegram-apps/telegram-ui';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -172,7 +172,9 @@ function replay(sgf: string): { positions: GameState[]; lastMoves: (number | nul
   const lastMoves: (number | null)[] = [null];
 
   for (const entry of record.moves) {
-    const result = play(state, entry.move);
+    // Два паса посреди записи — это не конец партии, а «доиграть»: дальше
+    // идут ходы, и просмотр обязан их показать.
+    const result = play(resumePlay(state), entry.move);
     if (!result.ok) break;
     state = result.value;
     positions.push(state);

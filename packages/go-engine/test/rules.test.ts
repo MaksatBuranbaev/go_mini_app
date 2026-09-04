@@ -211,6 +211,25 @@ describe('служебное', () => {
     expect(stone(result.value, 6, 2)).toBe(BLACK);
   });
 
+  it('доигрывает партию после двух пасов', () => {
+    // «Доиграть» отдельным ходом не записывается: о возврате из подсчёта
+    // говорит сам факт хода после двух пасов.
+    const result = replay({ size: 9 }, [
+      { type: 'play', x: 2, y: 2 },
+      { type: 'pass' },
+      { type: 'pass' },
+      { type: 'play', x: 6, y: 6 },
+      { type: 'pass' },
+      { type: 'pass' },
+    ]);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(stone(result.value, 6, 6)).toBe(WHITE);
+    expect(result.value.moveNumber).toBe(6);
+    // Последняя пара пасов снова закрывает партию.
+    expect(result.value.phase).toBe('scoring');
+  });
+
   it('сообщает о нелегальном ходе при прогоне', () => {
     const result = replay({ size: 9 }, [
       { type: 'play', x: 0, y: 0 },

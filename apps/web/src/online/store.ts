@@ -3,6 +3,7 @@ import {
   WHITE,
   createGame,
   play,
+  resumePlay,
   type Color,
   type GameState,
   type RecordedMove,
@@ -158,7 +159,9 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
         return;
       }
       const parsed = ServerMessageSchema.safeParse(payload);
-      if (parsed.success) handleServerMessage(parsed.data, set, get);
+      if (!parsed.success) return;
+      handleServerMessage(parsed.data, set, get);
+      alignPhase(set, get);
     });
   },
 
@@ -249,6 +252,18 @@ export const useOnlineStore = create<OnlineStore>((set, get) => ({
 
 type Setter = (partial: Partial<OnlineStore>) => void;
 type Getter = () => OnlineStore;
+
+/**
+ * Возврат из подсчёта («доиграть») отдельным ходом не записывается: о нём
+ * говорит только статус комнаты. Держим позицию в согласии со статусом —
+ * иначе движок на клиенте отвергает любой ход как «сейчас не игра», и после
+ * «доиграть» партия встаёт намертво.
+ */
+function alignPhase(set: Setter, get: Getter): void {
+  const { game, status } = get();
+  if (!game || status !== 'playing' || game.phase !== 'scoring') return;
+  set({ game: resumePlay(game) });
+}
 
 function handleServerMessage(
   message: ReturnType<typeof ServerMessageSchema.parse>,
@@ -353,13 +368,14 @@ function applyMove(move: MoveRecord, set: Setter, get: Getter): void {
   }
   if (move.seq !== lastSeq + 1) return;
 
-  const result = play(game, toEngineMove(move));
+  const base = resumePlay(game);
+  const result = play(base, toEngineMove(move));
   if (!result.ok) return;
 
-  if (move.type === 'play') feedbackFor(game, result.value);
+  if (move.type === 'play') feedbackFor(base, result.value);
   set({
     game: result.value,
-    record: [...get().record, { color: game.toPlay, move: toEngineMove(move) }],
+    record: [...get().record, { color: base.toPlay, move: toEngineMove(move) }],
     lastSeq: move.seq,
     ackSeq: move.seq,
     lastMove: move.type === 'play' ? move.y! * game.size + move.x! : null,
@@ -384,9 +400,11 @@ function replay(
   let lastSeq = 0;
 
   for (const move of moves) {
-    const result = play(game, toEngineMove(move));
+    // Ход после двух пасов — продолжение после «доиграть».
+    const base = resumePlay(game);
+    const result = play(base, toEngineMove(move));
     if (!result.ok) break;
-    record.push({ color: game.toPlay, move: toEngineMove(move) });
+    record.push({ color: base.toPlay, move: toEngineMove(move) });
     game = result.value;
     lastMove = move.type === 'play' ? move.y! * settings.size + move.x! : null;
     lastSeq = move.seq;
