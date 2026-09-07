@@ -9,15 +9,19 @@ import {
 import { retrieveRawInitData } from '@telegram-apps/sdk-react';
 
 /**
- * Адрес комнаты. Публичный, секретов в нём нет, поэтому лежит в коде:
- * так прод-сборка воспроизводима без внешнего окружения.
- * VITE_ROOM_URL перекрывает его — например, для туннеля в dev.
+ * Адрес комнаты. Воркер у каждого свой, поэтому в коде его нет: прод-сборка
+ * берёт адрес из `VITE_ROOM_URL`, dev — из локального `wrangler dev`. Той же
+ * переменной подставляется туннель, когда мини-апп открывают из Telegram.
  */
-const DEFAULT_ROOM_URL = import.meta.env.DEV
-  ? 'http://localhost:8787'
-  : 'https://go-room.zenfonemaxprom124.workers.dev';
+const ROOM_URL = (
+  import.meta.env.VITE_ROOM_URL ?? (import.meta.env.DEV ? 'http://localhost:8787' : '')
+).replace(/\/+$/, '');
 
-const ROOM_URL = (import.meta.env.VITE_ROOM_URL ?? DEFAULT_ROOM_URL).replace(/\/+$/, '');
+if (!ROOM_URL) {
+  // Уехать на относительный путь хуже: приложение выглядело бы живым и падало
+  // на первом же запросе к несуществующему адресу.
+  throw new Error('VITE_ROOM_URL не задан: сборке неоткуда узнать адрес комнаты');
+}
 
 /** Ссылка на сам мини-апп: к ней дописывается id комнаты как startapp. */
 const MINI_APP_LINK = import.meta.env.VITE_MINIAPP_LINK ?? 'https://t.me/ten_gen_bot/go_game';
