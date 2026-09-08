@@ -127,18 +127,24 @@ bash tests/run-all.sh        # сквозные прогоны, см. tests/READ
 
    ```bash
    corepack pnpm --filter @go/room exec wrangler secret put BOT_TOKEN
-   corepack pnpm --filter @go/room deploy
+   corepack pnpm --filter @go/room run deploy
    ```
 
 3. **Статика.** Адрес комнаты и ссылка на мини-апп задаются переменными сборки —
-   см. [apps/web/.env.example](apps/web/.env.example). В проекте Pages их нужно
-   прописать в настройках: без `VITE_ROOM_URL` собранное приложение падает
-   на старте с внятной ошибкой, а не стучится в никуда:
+   скопируйте [apps/web/.env.example](apps/web/.env.example) в
+   `apps/web/.env.local` и подставьте свои. Сборка идёт на своей машине, а в
+   Pages уезжает готовый `dist`, поэтому переменные нужны здесь, а не
+   в настройках проекта Pages (те работают, только если Pages собирает сам
+   из git). Без `VITE_ROOM_URL` приложение падает на старте с внятной ошибкой,
+   а не стучится в никуда.
 
    ```bash
-   corepack pnpm --filter @go/web build   # VITE_ROOM_URL обязателен
-   corepack pnpm --filter @go/web deploy
+   corepack pnpm --filter @go/web run build
+   corepack pnpm --filter @go/web run deploy
    ```
+
+`run` перед именем скрипта обязателен: у pnpm есть своя команда `deploy`,
+и без `run` запустится она.
 
 ## Лицензия
 
